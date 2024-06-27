@@ -1,9 +1,10 @@
 {
   "id": "dinox-sync",
-  "name": "dinox-sync",
-  "version": "1.0.3",
+  "name": "dinox Sync",
+  "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Synchronize Dinox notes to Obsidian",
+  "description": "Synchronize Dinox notes",
   "author": "Shanks",
+  "authorUrl": "https://github.com/ryzencool",
   "isDesktopOnly": true
 }
