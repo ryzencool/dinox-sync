@@ -1,7 +1,7 @@
 {
   "id": "dinox-sync",
   "name": "dinox-sync",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "minAppVersion": "0.15.0",
   "description": "Synchronize Dinox notes to Obsidian",
   "author": "Shanks",
