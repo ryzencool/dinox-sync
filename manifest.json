@@ -1,6 +1,6 @@
 {
   "id": "dinox-sync",
-  "name": "dinox Sync",
+  "name": "Dinox Sync",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
   "description": "Synchronize Dinox notes",
