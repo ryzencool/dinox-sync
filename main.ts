@@ -1,4 +1,12 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import {
+  App,
+  Notice,
+  Plugin,
+  PluginSettingTab,
+  Setting,
+  requestUrl,
+  RequestUrlParam,
+} from "obsidian";
 
 interface Note {
   title: string;
@@ -22,6 +30,7 @@ interface DayNote {
 interface DinoPluginSettings {
   token: string;
   isAutoSync: boolean;
+  dir: string;
 }
 
 const DEFAULT_SETTINGS: DinoPluginSettings = {
@@ -34,46 +43,42 @@ export default class DinoPlugin extends Plugin {
   statusBarItemEl: HTMLElement;
 
   async fetchData() {
-    const resp = await fetch(
-      `https://dinoai.chatgo.pro/openapi/notes?noteId=${0}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: this.settings.token,
-        },
+    const resp = await requestUrl({
+      url: `https://dinoai.chatgo.pro/openapi/notes?noteId=${0}`,
+      method: "GET",
+      headers: {
+        Authorization: this.settings.token,
       },
-    );
+    });
 
-    if (!resp.ok) {
-      throw new Error(`HTTP error! status: ${resp.status}`);
-    } else {
-      const result = (await resp.json()) as GetNoteApiResult;
-      if (result && result.code == "000000") {
-        const dayNotes = result.data;
-        dayNotes.forEach((it) => {
-          const datePath = `DinoxSync/${it.date}`;
-          const date = this.app.vault.getFolderByPath(datePath);
-          if (date == null) {
-            this.app.vault.createFolder(datePath);
+    const resultJson = await resp.json();
+
+    const result = resultJson as GetNoteApiResult;
+    if (result && result.code == "000000") {
+      const dayNotes = result.data;
+      dayNotes.forEach((it) => {
+        const datePath = `${this.settings.dir}/${it.date}`;
+        const date = this.app.vault.getFolderByPath(datePath);
+        if (date == null) {
+          this.app.vault.createFolder(datePath);
+        }
+        it.notes.forEach((itt) => {
+          let title = "";
+          if (itt.title && itt.title.trim() != "") {
+            title = itt.title;
+          } else {
+            title = itt.createTime;
           }
-          it.notes.forEach((itt) => {
-            let title = "";
-            if (itt.title && itt.title.trim() != "") {
-              title = itt.title;
-            } else {
-              title = itt.createTime;
-            }
-            this.app.vault.create(`${datePath}/${title}.md`, itt.content);
-          });
+          this.app.vault.create(`${datePath}/${title}.md`, itt.content);
         });
-      }
+      });
     }
   }
 
   onStatusBarClick() {
-    const dir = this.app.vault.getFolderByPath("DinoxSync");
+    const dir = this.app.vault.getFolderByPath(this.settings.dir);
     if (dir == null) {
-      this.app.vault.createFolder("DinoxSync");
+      this.app.vault.createFolder(this.settings.dir);
     }
     this.fetchData().then(() => {
       new Notice("sync success");
@@ -127,7 +132,20 @@ class DinoSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("Dinox Token")
+      .setName("Dinox directory")
+      .setDesc("Notes will be synchronized in this directory")
+      .addText((text) =>
+        text
+          .setPlaceholder("Enter your dir")
+          .setValue(this.plugin.settings.dir)
+          .onChange(async (value) => {
+            this.plugin.settings.dir = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Dinox token")
       .setDesc("token generated from dinox")
       .addText((text) =>
         text
@@ -141,13 +159,12 @@ class DinoSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Allow Auto Synchronize")
+      .setName("Allow auto synchronize")
       .setDesc("if allow, this plugin will sync every 30 min")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.isAutoSync)
           .onChange(async (value) => {
-            console.log("Switch toggled to " + value);
             this.plugin.settings.isAutoSync = value;
             await this.plugin.saveSettings();
           }),
