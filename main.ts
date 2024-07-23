@@ -5,7 +5,6 @@ import {
   PluginSettingTab,
   Setting,
   requestUrl,
-  RequestUrlParam,
 } from "obsidian";
 
 interface Note {
@@ -36,6 +35,7 @@ interface DinoPluginSettings {
 const DEFAULT_SETTINGS: DinoPluginSettings = {
   token: "",
   isAutoSync: false,
+  dir: "",
 };
 
 export default class DinoPlugin extends Plugin {
