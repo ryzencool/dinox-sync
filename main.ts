@@ -91,7 +91,7 @@ export default class DinoPlugin extends Plugin {
 				try {
 					it.notes.forEach((itt) => {
 						this.app.vault.create(
-							`${datePath}/${itt.noteId}.md`,
+							`${datePath}/${itt.noteId.replace("-", "_")}_dinox.md`,
 							itt.content
 						);
 					});
