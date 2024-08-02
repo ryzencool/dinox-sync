@@ -5,6 +5,7 @@ import {
 	PluginSettingTab,
 	Setting,
 	requestUrl,
+	Editor, MarkdownView
 } from "obsidian";
 
 interface Note {
@@ -14,6 +15,23 @@ interface Note {
 	noteId: string;
 	tags: string[];
 }
+
+const TEMPLATE = `---
+标题：{{title}}
+笔记 ID: {{noteId}}
+笔记类型：{{type}}
+tags:
+{{#tags}}
+    - {{.}}
+{{/tags}}
+网页链接：
+创建时间：{{createTime}}
+更新时间：{{updateTime}}
+---
+
+![录音]({{audioUrl}})
+{{content}}
+`;
 
 // Remember to rename these classes and interfaces!
 interface GetNoteApiResult {
@@ -30,12 +48,14 @@ interface DinoPluginSettings {
 	token: string;
 	isAutoSync: boolean;
 	dir: string;
+	template: string;
 }
 
 const DEFAULT_SETTINGS: DinoPluginSettings = {
 	token: "",
 	isAutoSync: false,
-	dir: "",
+	dir: "Dinox Sync",
+	template: TEMPLATE,
 };
 
 export default class DinoPlugin extends Plugin {
@@ -43,12 +63,20 @@ export default class DinoPlugin extends Plugin {
 	statusBarItemEl: HTMLElement;
 
 	async fetchData() {
+		const body = JSON.stringify({
+			template: this.settings.template,
+			noteId: 0
+		})
 		const resp = await requestUrl({
-			url: `https://dinoai.chatgo.pro/openapi/notes?noteId=${0}`,
-			method: "GET",
+			// url: `https://dinoai.chatgo.pro/openapi/v2/notes`,
+			url: `http://192.168.1.4:8080/openapi/v2/notes`,
+			method: "POST",
+			
 			headers: {
-				"Authorization": this.settings.token,
+				Authorization: this.settings.token,
+				"Content-Type": "application/json"
 			},
+			body: body
 		});
 
 		const resultJson = await resp.json;
@@ -62,12 +90,17 @@ export default class DinoPlugin extends Plugin {
 				if (date == null) {
 					this.app.vault.createFolder(datePath);
 				}
-				it.notes.forEach((itt) => {
-					this.app.vault.create(
-						`${datePath}/${itt.noteId}.md`,
-						itt.content
-					);
-				});
+				try {
+					it.notes.forEach((itt) => {
+						this.app.vault.create(
+							`${datePath}/${itt.noteId}.md`,
+							itt.content
+						);
+					});
+				} catch(e) {
+
+				}
+				
 			});
 		}
 	}
@@ -92,10 +125,18 @@ export default class DinoPlugin extends Plugin {
 
 		this.addSettingTab(new DinoSettingTab(this.app, this));
 
+		this.addCommand({
+			id: "dinox-sync-command",
+			name: "Synchronize notes",
+			editorCallback: async (editor: Editor, view: MarkdownView) => {
+				await this.fetchData()
+			  }
+		})
+
 		this.settings.isAutoSync &&
 			this.registerInterval(
-				window.setInterval(() => {
-					this.fetchData();
+				window.setInterval(async () => {
+					await this.fetchData();
 				}, 30 * 60 * 1000)
 			);
 	}
@@ -149,11 +190,24 @@ class DinoSettingTab extends PluginSettingTab {
 					.setPlaceholder("Enter Your Dinox Token")
 					.setValue(this.plugin.settings.token)
 					.onChange(async (value) => {
-						console.log(value);
 						this.plugin.settings.token = value;
 						await this.plugin.saveSettings();
 					})
 			);
+
+		new Setting(containerEl)
+			.setName("Content template")
+			.setDesc("Enter your template")
+			.addTextArea((text) => {
+				text.setPlaceholder(TEMPLATE)
+					.setValue(this.plugin.settings.template)
+					.onChange(async (value) => {
+						this.plugin.settings.template = value;
+						await this.plugin.saveSettings();
+					});
+					text.inputEl.classList.add('setting-template'); // 添加自定义类
+
+			});
 
 		new Setting(containerEl)
 			.setName("Allow auto synchronize")
