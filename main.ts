@@ -68,10 +68,8 @@ export default class DinoPlugin extends Plugin {
 			noteId: 0
 		})
 		const resp = await requestUrl({
-			// url: `https://dinoai.chatgo.pro/openapi/v2/notes`,
-			url: `http://192.168.1.4:8080/openapi/v2/notes`,
+			url: `https://dinoai.chatgo.pro/openapi/v2/notes`,
 			method: "POST",
-			
 			headers: {
 				Authorization: this.settings.token,
 				"Content-Type": "application/json"
