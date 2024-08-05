@@ -17,16 +17,16 @@ interface Note {
 }
 
 const TEMPLATE = `---
-标题：{{title}}
-笔记 ID: {{noteId}}
-笔记类型：{{type}}
+标题: {{title}}
+笔记ID: {{noteId}}
+笔记类型: {{type}}
 tags:
 {{#tags}}
     - {{.}}
 {{/tags}}
-网页链接：
-创建时间：{{createTime}}
-更新时间：{{updateTime}}
+网页链接:
+创建时间: {{createTime}}
+更新时间: {{updateTime}}
 ---
 
 ![录音]({{audioUrl}})
@@ -49,6 +49,7 @@ interface DinoPluginSettings {
 	isAutoSync: boolean;
 	dir: string;
 	template: string;
+	lastSyncTime?: Date
 }
 
 const DEFAULT_SETTINGS: DinoPluginSettings = {
@@ -58,17 +59,38 @@ const DEFAULT_SETTINGS: DinoPluginSettings = {
 	template: TEMPLATE,
 };
 
+
+function formatDate(date: Date): string {
+	const year = date.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
+	const hours = String(date.getHours()).padStart(2, '0');
+	const minutes = String(date.getMinutes()).padStart(2, '0');
+	const seconds = String(date.getSeconds()).padStart(2, '0');
+	return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+
 export default class DinoPlugin extends Plugin {
 	settings: DinoPluginSettings;
 	statusBarItemEl: HTMLElement;
 
 	async fetchData() {
+		const pData = await this.loadData()
+		let lastSyncTime = "1900-01-01 00:00:00";
+		if (pData.lastSyncTime && pData.lastSyncTime != "") {
+			const lTime = new Date(pData.lastSyncTime);
+			lastSyncTime = formatDate(lTime);
+		}
+
 		const body = JSON.stringify({
 			template: this.settings.template,
-			noteId: 0
+			noteId: 0,
+			lastSyncTime: lastSyncTime,
 		})
 		const resp = await requestUrl({
-			url: `https://dinoai.chatgo.pro/openapi/v2/notes`,
+			url: `https://dinoai.chatgo.pro/openapi/v3/notes`,
+			// url: `http://192.168.1.4:8080/openapi/v3/notes`,
 			method: "POST",
 			headers: {
 				Authorization: this.settings.token,
@@ -82,6 +104,7 @@ export default class DinoPlugin extends Plugin {
 		const result = resultJson as GetNoteApiResult;
 		if (result && result.code == "000000") {
 			const dayNotes = result.data;
+
 			dayNotes.forEach((it) => {
 				const datePath = `${this.settings.dir}/${it.date}`;
 				const date = this.app.vault.getFolderByPath(datePath);
@@ -90,17 +113,28 @@ export default class DinoPlugin extends Plugin {
 				}
 				try {
 					it.notes.forEach((itt) => {
+						const notePath = `${datePath}/${itt.noteId.replace("-", "_")}_dinox.md`
+						const note = this.app.vault.getAbstractFileByPath(notePath);
+						if (note != null) {
+							this.app.vault.delete(note, true);
+						}
 						this.app.vault.create(
 							`${datePath}/${itt.noteId.replace("-", "_")}_dinox.md`,
 							itt.content
 						);
-					});
-				} catch(e) {
 
+					});
+				} catch (e) {
+					console.log("error", e.message)
 				}
-				
 			});
 		}
+
+		console.log("保存记录")
+		await this.saveData({
+			lastSyncTime: new Date(),
+			...pData
+		})
 	}
 
 	async onStatusBarClick() {
@@ -128,18 +162,19 @@ export default class DinoPlugin extends Plugin {
 			name: "Synchronize notes",
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				await this.fetchData()
-			  }
+			}
 		})
 
 		this.settings.isAutoSync &&
-			this.registerInterval(
-				window.setInterval(async () => {
-					await this.fetchData();
-				}, 30 * 60 * 1000)
-			);
+		this.registerInterval(
+			window.setInterval(async () => {
+				await this.fetchData();
+			}, 30 * 60 * 1000)
+		);
 	}
 
-	onunload() {}
+	onunload() {
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -163,7 +198,7 @@ class DinoSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const { containerEl } = this;
+		const {containerEl} = this;
 
 		containerEl.empty();
 
@@ -203,7 +238,7 @@ class DinoSettingTab extends PluginSettingTab {
 						this.plugin.settings.template = value;
 						await this.plugin.saveSettings();
 					});
-					text.inputEl.classList.add('setting-template'); // 添加自定义类
+				text.inputEl.classList.add('setting-template'); // 添加自定义类
 
 			});
 
