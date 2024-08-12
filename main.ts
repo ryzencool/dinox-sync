@@ -5,7 +5,7 @@ import {
 	PluginSettingTab,
 	Setting,
 	requestUrl,
-	Editor, MarkdownView
+	Editor, MarkdownView, Menu, MenuItem
 } from "obsidian";
 
 interface Note {
@@ -33,7 +33,6 @@ tags:
 {{content}}
 `;
 
-// Remember to rename these classes and interfaces!
 interface GetNoteApiResult {
 	code: string;
 	data: DayNote[];
@@ -59,7 +58,6 @@ const DEFAULT_SETTINGS: DinoPluginSettings = {
 	template: TEMPLATE,
 };
 
-
 function formatDate(date: Date): string {
 	const year = date.getFullYear();
 	const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -69,7 +67,6 @@ function formatDate(date: Date): string {
 	const seconds = String(date.getSeconds()).padStart(2, '0');
 	return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
-
 
 export default class DinoPlugin extends Plugin {
 	settings: DinoPluginSettings;
@@ -163,7 +160,26 @@ export default class DinoPlugin extends Plugin {
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				await this.fetchData()
 			}
-		})
+		});
+
+		// 新增：添加右键菜单项
+		this.registerEvent(
+			this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor) => {
+				if (!editor || editor.getSelection().length === 0) {
+					return;
+				}
+
+				const selectedText = editor.getSelection();
+				let trimText = selectedText.length > 8 
+					? selectedText.substring(0, 3) + "..." + selectedText.substring(selectedText.length - 3)
+					: selectedText;
+
+				menu.addItem((item: MenuItem) => {
+					item.setTitle('Send "' + trimText + '" to Dinox')
+						.onClick(() => this.sendToDinox(selectedText));
+				});
+			})
+		);
 
 		this.settings.isAutoSync &&
 		this.registerInterval(
@@ -171,6 +187,42 @@ export default class DinoPlugin extends Plugin {
 				await this.fetchData();
 			}, 30 * 60 * 1000)
 		);
+	}
+
+	// 更新：发送选中文本到 Dinox 的方法
+	async sendToDinox(content: string) {
+		if (!this.settings.token) {
+			new Notice('Please set Dinox token first');
+			return;
+		}
+
+		try {
+			const body = JSON.stringify({
+				content: content,
+				tags: [], // 可以在这里添加标签逻辑
+				title: "" // 可以在这里添加标题逻辑
+			});
+
+			const resp = await requestUrl({
+				url: `https://dinoai.chatgo.pro/note/create`,
+				method: "POST",
+				headers: {
+					Authorization: this.settings.token,
+					"Content-Type": "application/json"
+				},
+				body: body
+			});
+
+			const resultJson = await resp.json;
+			if (resultJson.code === "000000") {
+				new Notice('Content sent to Dinox successfully');
+			} else {
+				new Notice('Failed to send content to Dinox: ' + resultJson.msg);
+			}
+		} catch (error) {
+			console.error('Error sending content to Dinox:', error);
+			new Notice('Error sending content to Dinox. Please check your settings and try again.');
+		}
 	}
 
 	onunload() {
