@@ -28,8 +28,10 @@ tags:
 创建时间: {{createTime}}
 更新时间: {{updateTime}}
 ---
-
+{{#audioUrl}}
 ![录音]({{audioUrl}})
+{{/audioUrl}}
+
 {{content}}
 `;
 
@@ -170,7 +172,7 @@ export default class DinoPlugin extends Plugin {
 				}
 
 				const selectedText = editor.getSelection();
-				let trimText = selectedText.length > 8 
+				const trimText = selectedText.length > 8
 					? selectedText.substring(0, 3) + "..." + selectedText.substring(selectedText.length - 3)
 					: selectedText;
 
