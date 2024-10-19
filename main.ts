@@ -334,7 +334,7 @@ class DinoSettingTab extends PluginSettingTab {
 					addOption("YYYY-MM-DD HH:mm:ss", "time")
 					.addOption("NoteID", "noteId")
 					.addOption("Title", "title")
-					.setValue("noteId")
+					.setValue(this.plugin.settings.filenameFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.filenameFormat = value;
 						await this.plugin.saveSettings()
@@ -347,7 +347,7 @@ class DinoSettingTab extends PluginSettingTab {
 				dropdown
 					.addOption("flat", "flat")
 					.addOption("nested", "nested")
-					.setValue("nested")
+					.setValue(this.plugin.settings.fileLayout)
 					.onChange( async (value) => {
 						this.plugin.settings.fileLayout = value
 						await this.plugin.saveSettings()
