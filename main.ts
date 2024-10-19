@@ -122,7 +122,7 @@ export default class DinoPlugin extends Plugin {
 					it.notes.forEach((itt) => {
 						let filename = ""
 						if (this.settings.filenameFormat == "noteId") {
-							filename = `${itt.noteId.replace("-", "_")}_dinox`
+							filename = itt.noteId.replace("-", "_")
 						} else if (this.settings.filenameFormat == "title") {
 							if (itt.title && itt.title != "") {
 								filename = itt.title
@@ -330,10 +330,10 @@ class DinoSettingTab extends PluginSettingTab {
 			.setName("Filename format")
 			.setDesc("set note filename")
 			.addDropdown((dropdown) => {
-				dropdown.
-					addOption("YYYY-MM-DD HH:mm:ss", "time")
-					.addOption("NoteID", "noteId")
-					.addOption("Title", "title")
+				dropdown
+					.addOption("time", "time")
+					.addOption("noteId", "noteId")
+					.addOption("title", "title")
 					.setValue(this.plugin.settings.filenameFormat)
 					.onChange(async (value) => {
 						this.plugin.settings.filenameFormat = value;
@@ -348,7 +348,7 @@ class DinoSettingTab extends PluginSettingTab {
 					.addOption("flat", "flat")
 					.addOption("nested", "nested")
 					.setValue(this.plugin.settings.fileLayout)
-					.onChange( async (value) => {
+					.onChange(async (value) => {
 						this.plugin.settings.fileLayout = value
 						await this.plugin.saveSettings()
 					})
