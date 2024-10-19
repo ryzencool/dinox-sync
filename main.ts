@@ -50,7 +50,9 @@ interface DinoPluginSettings {
 	isAutoSync: boolean;
 	dir: string;
 	template: string;
-	lastSyncTime?: Date
+	filenameFormat: string;
+	lastSyncTime?: Date;
+	fileLayout: string
 }
 
 const DEFAULT_SETTINGS: DinoPluginSettings = {
@@ -58,6 +60,8 @@ const DEFAULT_SETTINGS: DinoPluginSettings = {
 	isAutoSync: false,
 	dir: "Dinox Sync",
 	template: TEMPLATE,
+	filenameFormat: "noteId",
+	fileLayout: "nested"
 };
 
 function formatDate(date: Date): string {
@@ -89,7 +93,6 @@ export default class DinoPlugin extends Plugin {
 		})
 		const resp = await requestUrl({
 			url: `https://dinoai.chatgo.pro/openapi/v3/notes`,
-			// url: `http://192.168.1.4:8080/openapi/v3/notes`,
 			method: "POST",
 			headers: {
 				Authorization: this.settings.token,
@@ -105,14 +108,31 @@ export default class DinoPlugin extends Plugin {
 			const dayNotes = result.data;
 
 			dayNotes.forEach((it) => {
-				const datePath = `${this.settings.dir}/${it.date}`;
+				let datePath = `${this.settings.dir}/${it.date}`;
+				if (this.settings.fileLayout == "nested") {
+					datePath = `${this.settings.dir}/${it.date}`
+				} else {
+					datePath = this.settings.dir
+				}
 				const date = this.app.vault.getFolderByPath(datePath);
 				if (date == null) {
 					this.app.vault.createFolder(datePath);
 				}
 				try {
 					it.notes.forEach((itt) => {
-						const notePath = `${datePath}/${itt.noteId.replace("-", "_")}_dinox.md`
+						let filename = ""
+						if (this.settings.filenameFormat == "noteId") {
+							filename = `${itt.noteId.replace("-", "_")}_dinox`
+						} else if (this.settings.filenameFormat == "title") {
+							if (itt.title && itt.title != "") {
+								filename = itt.title
+							} else {
+								filename = itt.noteId.replace("-", "_")
+							}
+						} else if (this.settings.filenameFormat == "time") {
+							filename = formatDate(new Date(itt.createTime))
+						}
+						const notePath = `${datePath}/${filename}_dinox.md`
 						const note = this.app.vault.getAbstractFileByPath(notePath);
 						if (note != null) {
 							this.app.vault.delete(note, true);
@@ -121,7 +141,6 @@ export default class DinoPlugin extends Plugin {
 							`${datePath}/${itt.noteId.replace("-", "_")}_dinox.md`,
 							itt.content
 						);
-
 					});
 				} catch (e) {
 					console.log("error", e.message)
@@ -307,5 +326,32 @@ class DinoSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+		new Setting(containerEl)
+			.setName("Filename format")
+			.setDesc("set note filename")
+			.addDropdown((dropdown) => {
+				dropdown.
+					addOption("YYYY-MM-DD HH:mm:ss", "time")
+					.addOption("NoteID", "noteId")
+					.addOption("Title", "title")
+					.setValue("noteId")
+					.onChange(async (value) => {
+						this.plugin.settings.filenameFormat = value;
+						await this.plugin.saveSettings()
+					})
+			})
+		new Setting(containerEl)
+			.setName("File Layout")
+			.setDesc("set file layout")
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("flat", "flat")
+					.addOption("nested", "nested")
+					.setValue("nested")
+					.onChange( async (value) => {
+						this.plugin.settings.fileLayout = value
+						await this.plugin.saveSettings()
+					})
+			})
 	}
 }
