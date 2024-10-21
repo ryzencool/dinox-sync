@@ -131,6 +131,8 @@ export default class DinoPlugin extends Plugin {
 							}
 						} else if (this.settings.filenameFormat == "time") {
 							filename = formatDate(new Date(itt.createTime))
+						} else {
+							filename = itt.noteId.replace("-", "_")
 						}
 						const notePath = `${datePath}/${filename}_dinox.md`
 						const note = this.app.vault.getAbstractFileByPath(notePath);
@@ -138,7 +140,7 @@ export default class DinoPlugin extends Plugin {
 							this.app.vault.delete(note, true);
 						}
 						this.app.vault.create(
-							`${datePath}/${itt.noteId.replace("-", "_")}_dinox.md`,
+							`${datePath}/${filename}_dinox.md`,
 							itt.content
 						);
 					});
