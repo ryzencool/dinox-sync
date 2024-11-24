@@ -113,6 +113,7 @@ export default class DinoPlugin extends Plugin {
 
 		const resultJson = await resp.json;
 
+
 		const result = resultJson as GetNoteApiResult;
 		if (result && result.code == "000000") {
 			const dayNotes = result.data;
