@@ -19,6 +19,7 @@ interface Note {
 	zettelBoxes: string[]
 }
 
+
 const TEMPLATE = `---
 标题: {{title}}
 笔记 ID: {{noteId}}
