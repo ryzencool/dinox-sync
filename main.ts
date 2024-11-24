@@ -14,16 +14,24 @@ interface Note {
 	content: string;
 	noteId: string;
 	tags: string[];
+	isDel: boolean,
+	isAudio: boolean,
+	zettelBoxes: string[]
 }
 
 const TEMPLATE = `---
 标题: {{title}}
-笔记ID: {{noteId}}
+笔记 ID: {{noteId}}
 笔记类型: {{type}}
 tags:
 {{#tags}}
     - {{.}}
 {{/tags}}
+卡片盒:
+{{#zettelBoxes}}
+    - {{.}}
+{{/zettelBoxes}}
+包含语音: {{isAudio}}
 网页链接:
 创建时间: {{createTime}}
 更新时间: {{updateTime}}
@@ -51,7 +59,6 @@ interface DinoPluginSettings {
 	dir: string;
 	template: string;
 	filenameFormat: string;
-	lastSyncTime?: Date;
 	fileLayout: string
 }
 
@@ -85,6 +92,8 @@ export default class DinoPlugin extends Plugin {
 			const lTime = new Date(pData.lastSyncTime);
 			lastSyncTime = formatDate(lTime);
 		}
+		console.log("上次同步时间：", lastSyncTime)
+		const startSyncTime = formatDate(new Date())
 
 		const body = JSON.stringify({
 			template: this.settings.template,
@@ -92,7 +101,7 @@ export default class DinoPlugin extends Plugin {
 			lastSyncTime: lastSyncTime,
 		})
 		const resp = await requestUrl({
-			url: `https://dinoai.chatgo.pro/openapi/v3/notes`,
+			url: `https://dinoai.chatgo.pro/openapi/v5/notes`,
 			method: "POST",
 			headers: {
 				Authorization: this.settings.token,
@@ -107,7 +116,7 @@ export default class DinoPlugin extends Plugin {
 		if (result && result.code == "000000") {
 			const dayNotes = result.data;
 
-			dayNotes.forEach((it) => {
+			for (const it of dayNotes) {
 				let datePath = `${this.settings.dir}/${it.date}`;
 				if (this.settings.fileLayout == "nested") {
 					datePath = `${this.settings.dir}/${it.date}`
@@ -116,51 +125,79 @@ export default class DinoPlugin extends Plugin {
 				}
 				const date = this.app.vault.getFolderByPath(datePath);
 				if (date == null) {
-					this.app.vault.createFolder(datePath);
+					await this.app.vault.createFolder(datePath);
 				}
 				try {
-					it.notes.forEach((itt) => {
-						let filename = ""
-						if (this.settings.filenameFormat == "noteId") {
-							filename = itt.noteId.replace("-", "_")
-						} else if (this.settings.filenameFormat == "title") {
-							if (itt.title && itt.title != "") {
-								filename = itt.title
+					for (const itt of it.notes) {
+
+						// 判断是否删除
+
+						if (itt.isDel) {
+							// 若已经删除
+							let filename = ""
+							if (this.settings.filenameFormat == "noteId") {
+								filename = itt.noteId.replace("-", "_")
+							} else if (this.settings.filenameFormat == "title") {
+								if (itt.title && itt.title != "") {
+									filename = itt.title
+								} else {
+									filename = itt.noteId.replace("-", "_")
+								}
+							} else if (this.settings.filenameFormat == "time") {
+								filename = formatDate(new Date(itt.createTime))
 							} else {
 								filename = itt.noteId.replace("-", "_")
 							}
-						} else if (this.settings.filenameFormat == "time") {
-							filename = formatDate(new Date(itt.createTime))
+							const notePath = `${datePath}/${filename}_dinox.md`
+							const note = this.app.vault.getAbstractFileByPath(notePath);
+							if (note != null) {
+								await this.app.vault.delete(note, true);
+							}
 						} else {
-							filename = itt.noteId.replace("-", "_")
+							// 未删除
+							let filename = ""
+							if (this.settings.filenameFormat == "noteId") {
+								filename = itt.noteId.replace("-", "_")
+							} else if (this.settings.filenameFormat == "title") {
+								if (itt.title && itt.title != "") {
+									filename = itt.title
+								} else {
+									filename = itt.noteId.replace("-", "_")
+								}
+							} else if (this.settings.filenameFormat == "time") {
+								filename = formatDate(new Date(itt.createTime))
+							} else {
+								filename = itt.noteId.replace("-", "_")
+							}
+							const notePath = `${datePath}/${filename}_dinox.md`
+							const note = this.app.vault.getAbstractFileByPath(notePath);
+							if (note != null) {
+								await this.app.vault.delete(note, true);
+							}
+							await this.app.vault.create(
+								`${datePath}/${filename}_dinox.md`,
+								itt.content
+							);
 						}
-						const notePath = `${datePath}/${filename}_dinox.md`
-						const note = this.app.vault.getAbstractFileByPath(notePath);
-						if (note != null) {
-							this.app.vault.delete(note, true);
-						}
-						this.app.vault.create(
-							`${datePath}/${filename}_dinox.md`,
-							itt.content
-						);
-					});
+					}
 				} catch (e) {
 					console.log("error", e.message)
 				}
-			});
+			}
 		}
 
 		console.log("保存记录")
+		console.log(startSyncTime)
 		await this.saveData({
-			lastSyncTime: new Date(),
-			...pData
+			...pData,
+			lastSyncTime: startSyncTime,
 		})
 	}
 
 	async onStatusBarClick() {
 		const dir = this.app.vault.getFolderByPath(this.settings.dir);
 		if (dir == null) {
-			this.app.vault.createFolder(this.settings.dir);
+			await this.app.vault.createFolder(this.settings.dir);
 		}
 		await this.fetchData();
 		new Notice("sync success");
@@ -182,6 +219,19 @@ export default class DinoPlugin extends Plugin {
 			name: "Synchronize notes",
 			editorCallback: async (editor: Editor, view: MarkdownView) => {
 				await this.fetchData()
+			}
+		});
+
+		this.addCommand({
+			id: "dinox-reset-sync-command",
+			name: "Reset Sync",
+			editorCallback: async (editor: Editor, view: MarkdownView) => {
+				const pData = await this.loadData()
+				await this.saveData({
+					...pData,
+					lastSyncTime: "1900-01-01 00:00:00"
+				})
+				new Notice("Reset Sync")
 			}
 		});
 
