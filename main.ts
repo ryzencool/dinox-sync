@@ -7,6 +7,8 @@ import {
 	requestUrl,
 	Editor, MarkdownView, Menu, MenuItem
 } from "obsidian";
+import 'bigint-polyfill';
+
 
 interface Note {
 	title: string;
@@ -21,21 +23,21 @@ interface Note {
 
 
 const TEMPLATE = `---
-标题: {{title}}
+标题：{{title}}
 笔记 ID: {{noteId}}
-笔记类型: {{type}}
+笔记类型：{{type}}
 tags:
 {{#tags}}
     - {{.}}
 {{/tags}}
-卡片盒:
+卡片盒：
 {{#zettelBoxes}}
     - {{.}}
 {{/zettelBoxes}}
-包含语音: {{isAudio}}
-网页链接:
-创建时间: {{createTime}}
-更新时间: {{updateTime}}
+包含语音：{{isAudio}}
+网页链接：
+创建时间：{{createTime}}
+更新时间：{{updateTime}}
 ---
 {{#audioUrl}}
 ![录音]({{audioUrl}})
@@ -206,6 +208,7 @@ export default class DinoPlugin extends Plugin {
 	}
 
 	async onload() {
+
 		await this.loadSettings();
 		this.statusBarItemEl = this.addStatusBarItem();
 		this.statusBarItemEl.setText("Dinox");
@@ -256,6 +259,20 @@ export default class DinoPlugin extends Plugin {
 			})
 		);
 
+		this.registerEvent(
+			this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor) => {
+				if (!editor ) {
+					return;
+				}
+
+
+				menu.addItem((item: MenuItem) => {
+					item.setTitle('Sync to Dinox')
+						.onClick(() => this.syncToDinox(editor));
+				});
+			})
+		);
+
 		this.settings.isAutoSync &&
 		this.registerInterval(
 			window.setInterval(async () => {
@@ -264,6 +281,46 @@ export default class DinoPlugin extends Plugin {
 		);
 	}
 
+	async syncToDinox(editor: Editor) {
+		const content = editor.getValue()
+		const uuidPattern = /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g;
+		if (content) {
+			const matches = content.match(uuidPattern);
+			const noteId = matches?.[0];
+			if (noteId) {
+				const arr= content.split("---")
+				const finalContent = arr.slice(2, arr.length).join("")
+				try {
+					const resp = await requestUrl({
+						url: `https://dinoai.chatgo.pro/openapi/updateNote`,
+						method: "POST",
+						headers: {
+							Authorization: this.settings.token,
+							"Content-Type": "application/json"
+						},
+						body: JSON.stringify({
+							noteId: noteId,
+							contentMd: finalContent
+						})
+					})
+
+					const resultJson = await resp.json;
+					if (resultJson.code === "000000") {
+						new Notice('Sync to Dinox successfully');
+					} else {
+						new Notice('Sync to Dinox failed');
+					}
+				}catch (e) {
+					new Notice('Sync to Dinox failed');
+				}
+			}
+
+			if (noteId) {
+				console.log(content);
+			}
+		}
+
+	}
 	// 更新：发送选中文本到 Dinox 的方法
 	async sendToDinox(content: string) {
 		if (!this.settings.token) {
