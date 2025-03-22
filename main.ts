@@ -25,7 +25,7 @@ interface Note {
 const TEMPLATE = `---
 标题：{{title}}
 笔记 ID: {{noteId}}
-笔记类型：{{type}}
+笔记类型: {{type}}
 tags:
 {{#tags}}
     - {{.}}
@@ -34,10 +34,10 @@ tags:
 {{#zettelBoxes}}
     - {{.}}
 {{/zettelBoxes}}
-包含语音：{{isAudio}}
-网页链接：
-创建时间：{{createTime}}
-更新时间：{{updateTime}}
+包含语音: {{isAudio}}
+网页链接:
+创建时间: {{createTime}}
+更新时间: {{updateTime}}
 ---
 {{#audioUrl}}
 ![录音]({{audioUrl}})
