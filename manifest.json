@@ -1,7 +1,7 @@
 {
   "id": "dinox-sync",
   "name": "Dinox Sync",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "minAppVersion": "0.15.0",
   "description": "Synchronize Dinox notes",
   "author": "Shanks",
