@@ -212,6 +212,54 @@ export default class DinoPlugin extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: "dinox-sync-note-to-local-command",
+			name: "Sync dinox note to local",
+			hotkeys: [
+				{
+					modifiers: ["Mod", "Shift"],
+					key: "t",
+				},
+			],
+			callback: async () => {
+				if (!this.isSyncing) {
+					try {
+						await this.syncNotes();
+					} catch (error) {
+						console.error("Dinox: Sync failed:", error);
+						new Notice(`Dinox: Sync failed - ${error.message}`);
+					}
+				} else {
+					new Notice("Dinox: Sync already in progress.");
+				}
+			},
+		});
+
+		// Add command for syncToDinox with keyboard shortcut
+		this.addCommand({
+			id: "dinox-sync-current-note-command",
+			name: "Sync current note to Dinox",
+			hotkeys: [
+				{
+					modifiers: ["Mod", "Shift"],
+					key: "k",
+				},
+			],
+			checkCallback: (checking: boolean) => {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeView && activeView.file) {
+					if (!checking) {
+						this.syncToDinox(activeView.editor, activeView.file);
+					}
+					return true;
+				}
+				return false;
+			},
+		});
+
+	
+
+
 		// Editor Menu Items (Push to Dinox - Kept as potentially useful)
 		this.registerEvent(
 			this.app.workspace.on(
@@ -513,15 +561,29 @@ export default class DinoPlugin extends Plugin {
 		// --- Handle Deletion or Upsert (Delete + Create) ---
 		const existingFile = this.app.vault.getAbstractFileByPath(notePath);
 		let propertiesToPreserve: Record<string, any> = {}; // Store properties here
+
+		console.log("111111111111111111", keysToPreserve)
+
+
+
 		if (
 			existingFile &&
-			existingFile instanceof TFile &&
-			keysToPreserve.length > 0
+			existingFile instanceof TFile 
 		) {
 			try {
 				const cache = this.app.metadataCache.getFileCache(existingFile);
 				const existingFrontmatter = cache?.frontmatter;
+				console.log("当前存在的 frontmatter", existingFrontmatter)
 				if (existingFrontmatter) {
+
+					console.log("ignoreKey", ignoreKey, existingFrontmatter[ignoreKey])
+                    if (ignoreKey && existingFrontmatter[ignoreKey] == true) {
+						console.log("ignoreKey", ignoreKey, existingFrontmatter[ignoreKey])
+						return "skipped"
+                    }
+
+					if (keysToPreserve.length > 0) {
+					console.log("222222", keysToPreserve, existingFrontmatter)
 					keysToPreserve.forEach((key) => {
 						if (
 							Object.prototype.hasOwnProperty.call(
@@ -539,6 +601,7 @@ export default class DinoPlugin extends Plugin {
 							Object.keys(propertiesToPreserve)
 						);
 					}
+				}
 				}
 			} catch (e) {
 				console.warn(
@@ -582,34 +645,21 @@ export default class DinoPlugin extends Plugin {
 					return "skipped"; // Skip update/delete+create for this file
 				}
 			}
-			// Upsert: Delete if exists, then create
-			if (existingFile && existingFile instanceof TFile) {
-				console.log(
-					`Dinox: Deleting existing note before update: ${notePath}`
-				);
-				try {
-					await this.app.vault.delete(existingFile, true);
-				} catch (deleteError) {
-					console.error(
-						`Dinox: Failed to delete existing file for update ${notePath}:`,
-						deleteError
-					);
-					throw deleteError; // Stop processing this note if deletion fails
-				}
-			} else if (existingFile) {
-				// Path exists but isn't a file (e.g., folder with same name)
+			// Check for file path conflict (e.g., folder with same name)
+			if (existingFile && !(existingFile instanceof TFile)) {
 				console.error(
-					`Dinox: Path ${notePath} exists but is not a file. Cannot create note.`
+					`Dinox: Path ${notePath} exists but is not a file. Cannot create/update note.`
 				);
 				throw new Error(`Path conflict: ${notePath} is not a file.`);
 			}
-
 
 			let finalContent = noteData.content || "";
             const preservedYamlString = Object.keys(propertiesToPreserve).length > 0
                 ? objectToYamlString(propertiesToPreserve)
                 : "";
 
+
+				console.log("4444", preservedYamlString)
             if (preservedYamlString) {
                 // Strategy: Inject preserved properties into the content received from API.
                 // Assumes API content might or might not have frontmatter.
@@ -635,18 +685,25 @@ export default class DinoPlugin extends Plugin {
             }
 
 
-			// Create the new note using content from API
-			console.log(`Dinox: Creating/Updating note: ${notePath}`);
+			console.log("77777", finalContent)
+
 			try {
-				// Use noteData.content directly, assuming API applied template
-				await this.app.vault.create(notePath, noteData.content || "");
+				if (existingFile && existingFile instanceof TFile) {
+					// Update existing file instead of deleting and recreating
+					console.log(`Dinox: Updating existing note: ${notePath}`);
+					await this.app.vault.modify(existingFile, finalContent);
+				} else {
+					// Create new file
+					console.log(`Dinox: Creating new note: ${notePath}`);
+					await this.app.vault.create(notePath, finalContent);
+				}
 				return "processed";
-			} catch (createError) {
+			} catch (error) {
 				console.error(
-					`Dinox: Failed to create file ${notePath}:`,
-					createError
+					`Dinox: Failed to ${existingFile ? "update" : "create"} file ${notePath}:`,
+					error
 				);
-				throw createError; // Propagate error
+				throw error; // Propagate error
 			}
 		}
 	}
