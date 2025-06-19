@@ -88,6 +88,7 @@ const DEFAULT_SETTINGS: DinoPluginSettings = {
 };
 
 const API_BASE_URL = "https://dinoai.chatgo.pro";
+const API_BASE_URL_AI = "https://aisdk.chatgo.pro";
 
 // --- Helper Functions ---
 
@@ -257,6 +258,35 @@ export default class DinoPlugin extends Plugin {
 			},
 		});
 
+		// Add command for createNoteToDinox with keyboard shortcut
+		this.addCommand({
+			id: "dinox-create-note-command",
+			name: "Create current note into Dinox",
+			hotkeys: [
+				{
+					modifiers: ["Mod", "Shift"],
+					key: "c",
+				},
+			],
+			checkCallback: (checking: boolean) => {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeView && activeView.file) {
+					const fileCache = this.app.metadataCache.getFileCache(activeView.file);
+					const frontmatter = fileCache?.frontmatter;
+					const noteId = frontmatter?.noteId;
+					
+					// Only show if no noteId exists
+					if (!noteId) {
+						if (!checking) {
+							this.createNoteToDinox(activeView.editor, activeView.file);
+						}
+						return true;
+					}
+				}
+				return false;
+			},
+		});
+
 	
 
 
@@ -279,13 +309,27 @@ export default class DinoPlugin extends Plugin {
 								: selectedText;
 
 						menu.addItem((item: MenuItem) => {
-							item.setTitle(`Send "${trimText}" to Dinox`)
+							item.setTitle(`Select"${trimText}" and send to Dinox`)
 								.setIcon("upload") // Optional icon
 								.onClick(() => this.sendToDinox(selectedText));
 						});
 					}
-					// Sync Current Note
+					// Create into Dinox - Only show if current note doesn't have noteId
 					const file = this.app.workspace.getActiveFile();
+					if (editor && file) {
+						const fileCache = this.app.metadataCache.getFileCache(file);
+						const frontmatter = fileCache?.frontmatter;
+						const noteId = frontmatter?.noteId;
+						
+						if (!noteId) {
+							menu.addItem((item: MenuItem) => {
+								item.setTitle("Create into Dinox")
+									.setIcon("plus") // Optional icon
+									.onClick(() => this.createNoteToDinox(editor, file));
+							});
+						}
+					}
+					// Sync Current Note
 					if (editor && file) {
 						// ... (syncToDinox menu item code from previous version) ...
 						menu.addItem((item: MenuItem) => {
@@ -747,7 +791,7 @@ export default class DinoPlugin extends Plugin {
 				title: title,
 			});
 			const resp = await requestUrl({
-				url: `${API_BASE_URL}/note/create`, // Verify endpoint
+				url: `${API_BASE_URL_AI}/api/openapi/createNote`, // Verify endpoint
 				method: "POST",
 				headers: {
 					Authorization: this.settings.token,
@@ -769,6 +813,134 @@ export default class DinoPlugin extends Plugin {
 		} catch (error) {
 			console.error("Dinox: Error sending content:", error);
 			new Notice(`Dinox: Error sending - ${error.message}`);
+		}
+	}
+
+	async createNoteToDinox(editor: Editor, file: TFile) {
+		if (!this.settings.token) {
+			new Notice("Dinox: Please set Dinox token first");
+			return;
+		}
+		
+		new Notice("Dinox: Creating note in Dinox...");
+		
+		const fileContent = await this.app.vault.cachedRead(file);
+		const fileCache = this.app.metadataCache.getFileCache(file);
+		
+		// Extract content without frontmatter
+		let contentToCreate = fileContent;
+		if (fileCache?.frontmatterPosition) {
+			contentToCreate = fileContent
+				.substring(fileCache.frontmatterPosition.end.offset)
+				.trim();
+		}
+		
+		// Use file name as title if no title in frontmatter
+		const frontmatter = fileCache?.frontmatter;
+		const title = frontmatter?.title || file.basename || "New Note from Obsidian";
+		
+		// Extract tags from both frontmatter and content
+		const allTags = this.extractAllTags(fileContent, frontmatter);
+		
+		try {
+			const requestBody = JSON.stringify({
+				content: contentToCreate,
+				tags: allTags,
+				title: title,
+			});
+			
+			const resp = await requestUrl({
+				url: `${API_BASE_URL_AI}/api/openapi/createNote`,
+				method: "POST",
+				headers: {
+					Authorization: this.settings.token,
+					"Content-Type": "application/json",
+				},
+				body: requestBody,
+			});
+			
+			const resultJson = resp.json;
+			if (resultJson.code === "000000" && resultJson.data?.noteId) {
+				const createdNoteId = resultJson.data.noteId;
+				
+				// Add noteId to frontmatter
+				await this.addNoteIdToFrontmatter(file, createdNoteId);
+				
+				new Notice(
+					`Dinox: Note created successfully with ID: ${createdNoteId.substring(0, 8)}...`
+				);
+			} else {
+				console.error("Dinox create failed:", resultJson);
+				new Notice(
+					`Dinox: Failed to create note - ${
+						resultJson.msg || "Unknown error"
+					}`
+				);
+			}
+		} catch (error) {
+			console.error("Dinox: Error creating note:", error);
+			new Notice(`Dinox: Error creating note - ${error.message}`);
+		}
+	}
+	
+	extractAllTags(fileContent: string, frontmatter: any): string[] {
+		const tags = new Set<string>();
+		
+		// 1. Get tags from frontmatter
+		if (frontmatter?.tags) {
+			if (Array.isArray(frontmatter.tags)) {
+				frontmatter.tags.forEach((tag: string) => {
+					if (tag && typeof tag === 'string') {
+						tags.add(tag.trim());
+					}
+				});
+			}
+		}
+		
+		// 2. Extract hashtags from content using regex
+		// Match hashtags like #标签，#reading, #生活 etc.
+		// Don't match hashtags inside code blocks or at the start of headers
+		const hashtagRegex = /(?:^|[\s\n])#([^\s#\[\]]+)/g;
+		let match;
+		
+		while ((match = hashtagRegex.exec(fileContent)) !== null) {
+			const tag = match[1];
+			// Filter out numeric hashtags or very short ones that might be false positives
+			if (tag && tag.length > 1 && !/^\d+$/.test(tag)) {
+				tags.add(tag);
+			}
+		}
+		
+		return Array.from(tags);
+	}
+
+	async addNoteIdToFrontmatter(file: TFile, noteId: string) {
+		try {
+			const fileContent = await this.app.vault.cachedRead(file);
+			const fileCache = this.app.metadataCache.getFileCache(file);
+			
+			let newContent: string;
+			
+			if (fileCache?.frontmatterPosition) {
+				// File already has frontmatter, add noteId to it
+				const beforeFrontmatter = fileContent.substring(0, fileCache.frontmatterPosition.start.offset);
+				const frontmatterContent = fileContent.substring(
+					fileCache.frontmatterPosition.start.offset + 3, // Skip first '---'
+					fileCache.frontmatterPosition.end.offset - 3 // Skip last '---'
+				).trim();
+				const afterFrontmatter = fileContent.substring(fileCache.frontmatterPosition.end.offset);
+				
+				newContent = beforeFrontmatter + "---\n" + frontmatterContent + "\nnoteId: " + noteId + "\n---" + afterFrontmatter;
+			} else {
+				// File has no frontmatter, create new one with noteId
+				newContent = "---\nnoteId: " + noteId + "\n---\n" + fileContent;
+			}
+			
+			await this.app.vault.modify(file, newContent);
+			console.log(`Dinox: Added noteId ${noteId} to ${file.path}`);
+		} catch (error) {
+			console.error("Dinox: Error adding noteId to frontmatter:", error);
+			new Notice(`Dinox: Error updating frontmatter - ${error.message}`);
 		}
 	}
 
@@ -798,13 +970,22 @@ export default class DinoPlugin extends Plugin {
 				.trim();
 		}
 
+		// Extract tags from both frontmatter and content
+		const allTags = this.extractAllTags(fileContent, frontmatter);
+		
+		// Extract title from frontmatter or use filename
+		const title = frontmatter?.title || file.basename || "Untitled";
+
 		try {
 			const requestBody = JSON.stringify({
 				noteId: noteId,
 				contentMd: contentToSync, // Verify if API expects 'contentMd' or 'content' for update
+				tags: allTags,
+				title: title,
 			});
+			console.log("requestBody", this.settings.token, requestBody)
 			const resp = await requestUrl({
-				url: `${API_BASE_URL}/openapi/updateNote`, // Verify endpoint
+				url: `${API_BASE_URL_AI}/api/openapi/updateNote`, // Verify endpoint
 				method: "POST",
 				headers: {
 					Authorization: this.settings.token,
