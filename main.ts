@@ -521,7 +521,7 @@ export default class DinoPlugin extends Plugin {
 		let processed = 0;
 		let deleted = 0;
 
-		for (const dayData of dayNotes) {
+		for (const dayData of dayNotes.reverse()) {
 			let datePath = this.settings.dir; // Default for flat layout
 			if (this.settings.fileLayout === "nested") {
 				// Ensure date format is path-safe (YYYY-MM-DD is usually safe)
@@ -530,7 +530,7 @@ export default class DinoPlugin extends Plugin {
 				await this.ensureFolderExists(datePath);
 			}
 
-			for (const noteData of dayData.notes) {
+			for (const noteData of dayData.notes.reverse()) {
 				try {
 					const result = await this.handleNoteProcessing(
 						noteData,
