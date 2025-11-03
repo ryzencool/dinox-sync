@@ -1,217 +1,63 @@
 import {
-    App,
-    Notice,
-    Plugin,
-    PluginSettingTab,
-    Setting,
-    requestUrl,
-    Editor,
-    MarkdownView,
-    Menu,
-    MenuItem,
-    normalizePath,
-    TFile,
-    TFolder,
-    Hotkey,
-    Modifier,
-    Command,
-    ButtonComponent,
-    Platform,
-    Scope,
-    KeymapEventHandler,
+	App,
+	Notice,
+	Plugin,
+	requestUrl,
+	Editor,
+	MarkdownView,
+	Menu,
+	MenuItem,
+	normalizePath,
+	TFile,
+	TFolder,
+	Hotkey,
+	Command,
+	Platform,
+	Scope,
+	KeymapEventHandler,
 } from "obsidian";
+import type { Modifier } from "obsidian";
 import {
-    getCurrentLocale,
-    translate,
-    type LocaleCode,
-    type TranslationKey,
-    type TranslationVars,
+	getCurrentLocale,
+	translate,
+	type LocaleCode,
+	type TranslationKey,
+	type TranslationVars,
 } from "./i18n";
-// import 'bigint-polyfill'; // Removed, likely unnecessary
-
-// --- Interfaces ---
-interface Note {
-	title: string;
-	createTime: string; // Assuming ISO string or compatible
-	content: string; // Content *as received from API*, assuming template applied server-side
-	noteId: string; // Unique ID from Dinox
-	tags?: string[]; // Made optional as not used in core logic here
-	isDel: boolean;
-	isAudio?: boolean; // Made optional
-	zettelBoxes?: string[]; // Made optional
-}
-
-interface DayNote {
-	date: string; // e.g., "YYYY-MM-DD"
-	notes: Note[];
-}
-
-interface GetNoteApiResult {
-	code: string;
-	msg?: string; // Capture potential error message from API
-	data: DayNote[];
-}
-
-// Settings Interface - Simplified to match original state needs
-interface DinoPluginSettings {
-	token: string;
-	isAutoSync: boolean;
-	dir: string; // Sync base directory
-	template: string; // Content template (sent to API)
-	filenameFormat: "noteId" | "title" | "time";
-	fileLayout: "flat" | "nested";
-	ignoreSyncKey: string;
-	preserveKeys: string; // <<< New setting: Comma-separated keys to preserve
-	commandHotkeys: DinoHotkeyMap;
-
-	// Removed lastSyncTime and noteMapping - will load/save dynamically like original
-}
-
-type DinoCommandKey = "syncAll" | "syncCurrentNote" | "createNote";
-
-interface DinoHotkeySetting {
-	modifiers: Modifier[];
-	key: string;
-}
-
-type DinoHotkeyMap = Record<DinoCommandKey, DinoHotkeySetting>;
-
-// --- Constants ---
-// Default template text for the settings UI
-const DEFAULT_TEMPLATE_TEXT = `---
-title: {{title}}
-noteId: {{noteId}}
-type: {{type}}
-tags:
-{{#tags}}
-    - {{.}}
-{{/tags}}
-zettelBoxes:
-{{#zettelBoxes}}
-    - {{.}}
-{{/zettelBoxes}}
-audioUrl: {{audioUrl}}
-createTime: {{createTime}}
-updateTime: {{updateTime}}
----
-{{#audioUrl}}
-![录音]({{audioUrl}})
-{{/audioUrl}}
-
-{{content}}
-`;
-
-function createEmptyHotkey(): DinoHotkeySetting {
-	return { modifiers: [], key: "" };
-}
-
-function createDefaultHotkeys(): DinoHotkeyMap {
-	return {
-		syncAll: createEmptyHotkey(),
-		syncCurrentNote: createEmptyHotkey(),
-		createNote: createEmptyHotkey(),
-	};
-}
-
-const DEFAULT_SETTINGS: DinoPluginSettings = {
-	token: "",
-	isAutoSync: false,
-	dir: "Dinox Sync",
-	template: DEFAULT_TEMPLATE_TEXT,
-	filenameFormat: "noteId",
-	fileLayout: "nested",
-	ignoreSyncKey: "ignore_sync",
-	preserveKeys: "",
-	commandHotkeys: createDefaultHotkeys(),
-};
-
-const API_BASE_URL = "https://dinoai.chatgo.pro";
-const API_BASE_URL_AI = "https://aisdk.chatgo.pro";
-const VALID_MODIFIERS: Modifier[] = ["Mod", "Ctrl", "Meta", "Shift", "Alt"];
-const MODIFIER_ORDER: Modifier[] = ["Mod", "Ctrl", "Meta", "Shift", "Alt"];
-
-function normalizeKeyValue(key: string): string {
-	if (!key) return "";
-	if (key === "Esc") return "Escape";
-	if (key === "Space") return " ";
-	if (key.length === 1) return key.toUpperCase();
-	return key;
-}
-
-function sanitizeHotkeySetting(
-	setting: DinoHotkeySetting | undefined
-): DinoHotkeySetting {
-	if (!setting) return createEmptyHotkey();
-	const keyValue =
-		typeof setting.key === "string" ? normalizeKeyValue(setting.key) : "";
-	const rawModifiers = Array.isArray(setting.modifiers)
-		? setting.modifiers
-		: [];
-	const deduped = new Set<Modifier>();
-	for (const maybeMod of rawModifiers) {
-		if (
-			typeof maybeMod === "string" &&
-			(VALID_MODIFIERS as string[]).includes(maybeMod) &&
-			!deduped.has(maybeMod as Modifier)
-		) {
-			deduped.add(maybeMod as Modifier);
-		}
-	}
-	return {
-		key: keyValue,
-		modifiers: Array.from(deduped).sort(
-			(a, b) => MODIFIER_ORDER.indexOf(a) - MODIFIER_ORDER.indexOf(b)
-		),
-	};
-}
-
-function cloneHotkeyMap(map?: Partial<DinoHotkeyMap>): DinoHotkeyMap {
-	return {
-		syncAll: sanitizeHotkeySetting(map?.syncAll),
-		syncCurrentNote: sanitizeHotkeySetting(map?.syncCurrentNote),
-		createNote: sanitizeHotkeySetting(map?.createNote),
-	};
-}
-
-// Ensure safe error message extraction without assuming Error type
-function getErrorMessage(error: unknown): string {
-    if (error instanceof Error && typeof error.message === "string") {
-        return error.message;
-    }
-    try {
-        return JSON.stringify(error);
-    } catch {
-        return String(error);
-    }
-}
-
-// Original formatDate function
-function formatDate(date: Date): string {
-	const year = date.getFullYear();
-	const month = String(date.getMonth() + 1).padStart(2, "0");
-	const day = String(date.getDate()).padStart(2, "0");
-	const hours = String(date.getHours()).padStart(2, "0");
-	const minutes = String(date.getMinutes()).padStart(2, "0");
-	const seconds = String(date.getSeconds()).padStart(2, "0");
-	return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-}
-
-// Keep sanitization for robustness
-function sanitizeFilename(name: string): string {
-	if (!name) return "Untitled";
-	let sanitized = name.replace(/[\\/:*?"<>|#^\[\]]/g, "-");
-	sanitized = sanitized.replace(/[\s-]+/g, "-");
-	sanitized = sanitized.trim().replace(/^-+|-+$/g, "");
-	sanitized = sanitized.substring(0, 100);
-	if (sanitized === "." || sanitized === "..") return "Untitled";
-	return sanitized || "Untitled";
-}
+import {
+	DEFAULT_SETTINGS,
+	API_BASE_URL,
+	API_BASE_URL_AI,
+} from "./src/constants";
+import {
+	sanitizeHotkeySetting,
+	cloneHotkeyMap,
+	normalizeKeyValue,
+	createEmptyHotkey,
+} from "./src/hotkeys";
+import {
+	getErrorMessage,
+	formatDate,
+	sanitizeFilename,
+} from "./src/utils";
+import type { DinoPluginAPI } from "./src/plugin-types";
+import type {
+	Note,
+	DayNote,
+	GetNoteApiResult,
+	DinoPluginSettings,
+	DinoHotkeyMap,
+	DinoHotkeySetting,
+	DinoCommandKey,
+} from "./src/types";
+import { DinoSettingTab } from "./src/setting-tab";
 
 // --- Plugin Class ---
-export default class DinoPlugin extends Plugin {
+export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 	settings: DinoPluginSettings;
 	statusBarItemEl: HTMLElement;
 	isSyncing = false; // Prevent concurrent syncs
+	readonly defaults: Readonly<DinoPluginSettings> = DEFAULT_SETTINGS;
 	private currentLocale: LocaleCode = "en";
 	private commandRefs: Partial<Record<DinoCommandKey, Command>> = {};
 	private hotkeyScope: Scope | null = null;
@@ -1329,287 +1175,3 @@ export default class DinoPlugin extends Plugin {
 }
 
 // --- Settings Tab Class (Adjusted for simpler state) ---
-class DinoSettingTab extends PluginSettingTab {
-	plugin: DinoPlugin;
-
-	constructor(app: App, plugin: DinoPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const { containerEl } = this;
-		this.plugin.cancelHotkeyCapture(false);
-		this.plugin.refreshLocale();
-		const t = this.plugin.t.bind(this.plugin);
-		containerEl.empty();
-		containerEl.createEl("h2", { text: t("settings.title") });
-
-		// Token
-		new Setting(containerEl)
-			.setName(t("settings.token.name"))
-			.setDesc(t("settings.token.desc"))
-			.addText((text) =>
-				text
-					.setPlaceholder(t("settings.token.placeholder"))
-					.setValue(this.plugin.settings.token)
-					.onChange(async (value) => {
-						this.plugin.settings.token = value.trim();
-						await this.plugin.saveSettings(); // Saves only settings object now
-					})
-			);
-
-		// Sync Directory
-		new Setting(containerEl)
-			.setName(t("settings.dir.name"))
-			.setDesc(t("settings.dir.desc"))
-			.addText((text) =>
-				text
-					.setPlaceholder(t("settings.dir.placeholder"))
-					.setValue(this.plugin.settings.dir)
-					.onChange(async (value) => {
-						this.plugin.settings.dir =
-							value.replace(/^\/|\/$/g, "").trim() ||
-							"Dinox Sync";
-						await this.plugin.saveSettings();
-					})
-			);
-
-		containerEl.createEl("h3", { text: t("settings.filenameHeading") });
-
-		// Filename Format
-		new Setting(containerEl)
-			.setName(t("settings.filename.name"))
-			.setDesc(t("settings.filename.desc"))
-			.addDropdown((dropdown) => {
-				dropdown
-					// Keep options, ID is generally safer if titles can change often
-					.addOption("noteId", t("settings.filename.optionId"))
-					.addOption("title", t("settings.filename.optionTitle"))
-					.addOption("time", t("settings.filename.optionTime"))
-					.setValue(this.plugin.settings.filenameFormat)
-					.onChange(async (value: "noteId" | "title" | "time") => {
-						this.plugin.settings.filenameFormat = value;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		// File Layout
-		new Setting(containerEl)
-			.setName(t("settings.layout.name"))
-			.setDesc(t("settings.layout.desc"))
-			.addDropdown((dropdown) => {
-				dropdown
-					.addOption(
-						"nested",
-						t("settings.layout.optionNested")
-					)
-					.addOption("flat", t("settings.layout.optionFlat"))
-					.setValue(this.plugin.settings.fileLayout)
-					.onChange(async (value: "flat" | "nested") => {
-						this.plugin.settings.fileLayout = value;
-						await this.plugin.saveSettings();
-					});
-			});
-		new Setting(containerEl)
-			.setName(t("settings.ignoreKey.name"))
-			.setDesc(t("settings.ignoreKey.desc"))
-			.addText((text) =>
-				text
-					.setPlaceholder(this.plugin.settings.ignoreSyncKey)
-					.setValue(this.plugin.settings.ignoreSyncKey)
-					.onChange(async (value) => {
-						// Basic validation: trim and ensure it's a valid potential key (simple check)
-						const cleanedValue = value.trim();
-						if (cleanedValue && !/\s/.test(cleanedValue)) {
-							// Ensure no spaces
-							this.plugin.settings.ignoreSyncKey = cleanedValue;
-						} else if (!cleanedValue) {
-							// Allow empty to disable feature? Or enforce default?
-							this.plugin.settings.ignoreSyncKey =
-								DEFAULT_SETTINGS.ignoreSyncKey; // Revert to default if cleared or invalid
-							// Maybe show a notice?
-							new Notice(t("notice.invalidIgnoreKeyReverted"));
-							text.setValue(this.plugin.settings.ignoreSyncKey); // Update UI
-						} else {
-							new Notice(t("notice.invalidIgnoreKeySpaces"));
-							// Keep the old value or revert to default? Let's revert.
-							this.plugin.settings.ignoreSyncKey =
-								DEFAULT_SETTINGS.ignoreSyncKey;
-							text.setValue(this.plugin.settings.ignoreSyncKey); // Update UI
-						}
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName(t("settings.preserveKeys.name"))
-			.setDesc(t("settings.preserveKeys.desc"))
-			.addTextArea(
-				(
-					text // Use TextArea for potentially longer lists
-				) =>
-					text
-						.setPlaceholder(t("settings.preserveKeys.placeholder"))
-						.setValue(this.plugin.settings.preserveKeys)
-						.onChange(async (value) => {
-							// Store the raw comma-separated string
-							this.plugin.settings.preserveKeys = value;
-							await this.plugin.saveSettings();
-						})
-			);
-		// Content Template (Sent to API)
-		new Setting(containerEl)
-			.setName(t("settings.template.name"))
-			.setDesc(t("settings.template.desc"))
-			.addTextArea((text) => {
-				text.setPlaceholder(DEFAULT_TEMPLATE_TEXT)
-					.setValue(this.plugin.settings.template)
-					.onChange(async (value) => {
-						this.plugin.settings.template = value;
-						await this.plugin.saveSettings();
-					});
-				text.inputEl.rows = 10;
-				text.inputEl.cols = 60;
-				text.inputEl.classList.add("dino-sync-template-setting");
-			});
-
-		// Auto Sync Toggle
-		new Setting(containerEl)
-			.setName(t("settings.autoSync.name"))
-			.setDesc(t("settings.autoSync.desc"))
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.isAutoSync)
-					.onChange(async (value) => {
-						this.plugin.settings.isAutoSync = value;
-						await this.plugin.saveSettings();
-						this.plugin.refreshAutoSyncSchedule();
-						new Notice(
-							value
-								? this.plugin.t("notice.autoSyncEnabled")
-								: this.plugin.t("notice.autoSyncDisabled")
-						);
-					})
-			);
-
-		containerEl.createEl("h3", { text: t("settings.section.hotkeys") });
-		this.addHotkeySetting(
-			containerEl,
-			t("settings.hotkeys.syncAll.name"),
-			t("settings.hotkeys.syncAll.desc"),
-			"syncAll"
-		);
-		this.addHotkeySetting(
-			containerEl,
-			t("settings.hotkeys.syncCurrent.name"),
-			t("settings.hotkeys.syncCurrent.desc"),
-			"syncCurrentNote"
-		);
-		this.addHotkeySetting(
-			containerEl,
-			t("settings.hotkeys.create.name"),
-			t("settings.hotkeys.create.desc"),
-			"createNote"
-		);
-
-		// Reset Sync Button (Simplified)
-		containerEl.createEl("h3", { text: t("settings.section.advanced") });
-		new Setting(containerEl)
-			.setName(t("settings.advanced.reset.name"))
-			.setDesc(t("settings.advanced.reset.desc"))
-			.addButton((button) =>
-				button
-					.setButtonText(t("settings.advanced.resetButton"))
-					.setWarning()
-					.onClick(async () => {
-						const confirmed = confirm(
-							t("settings.advanced.confirm")
-						);
-						if (confirmed) {
-							// Use the reset command logic directly
-							const pData = (await this.plugin.loadData()) || {};
-							await this.plugin.saveData({
-								...pData,
-								lastSyncTime: "1900-01-01 00:00:00",
-							});
-							new Notice(this.plugin.t("notice.resetDone"));
-						}
-					})
-			);
-	}
-
-	private addHotkeySetting(
-		containerEl: HTMLElement,
-		label: string,
-		description: string,
-		commandKey: DinoCommandKey
-	): void {
-		const t = this.plugin.t.bind(this.plugin);
-		const setting = new Setting(containerEl)
-			.setName(label)
-			.setDesc(description);
-
-		const displayEl = setting.controlEl.createSpan({
-			cls: "dinox-hotkey-display",
-		});
-
-		const updateDisplay = () => {
-			const labelText = this.plugin.getHotkeyDisplay(commandKey);
-			displayEl.textContent =
-				labelText || t("settings.hotkeys.notSet");
-		};
-
-		const applySetting = async (
-			hotkey: DinoHotkeySetting | null
-		): Promise<void> => {
-			const changed = await this.plugin.applyHotkeySetting(
-				commandKey,
-				hotkey
-			);
-			updateDisplay();
-			if (changed) {
-				const labelText = this.plugin.getHotkeyDisplay(commandKey);
-				new Notice(
-					labelText
-						? this.plugin.t("notice.hotkeySet", {
-								hotkey: labelText,
-						  })
-						: this.plugin.t("notice.hotkeyCleared")
-				);
-			}
-		};
-
-		updateDisplay();
-
-		const actionsEl = setting.controlEl.createDiv(
-			"dinox-hotkey-actions"
-		);
-
-		new ButtonComponent(actionsEl)
-			.setButtonText(t("settings.hotkeys.setButton"))
-			.onClick(() => {
-				this.plugin.beginHotkeyCapture(
-					commandKey,
-					displayEl,
-					async (hotkey) => {
-						await applySetting(hotkey);
-					},
-					async () => {
-						await applySetting(null);
-					}
-				);
-			})
-			.setTooltip(t("settings.hotkeys.setTooltip"));
-
-		new ButtonComponent(actionsEl)
-			.setButtonText(t("settings.hotkeys.clearButton"))
-			.onClick(async () => {
-				this.plugin.cancelHotkeyCapture(false);
-				await applySetting(null);
-			})
-			.setTooltip(t("settings.hotkeys.clearTooltip"));
-
-		setting.settingEl.classList.add("dinox-hotkey-setting");
-	}
-}
