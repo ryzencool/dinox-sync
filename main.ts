@@ -20,6 +20,13 @@ import {
     Scope,
     KeymapEventHandler,
 } from "obsidian";
+import {
+    getCurrentLocale,
+    translate,
+    type LocaleCode,
+    type TranslationKey,
+    type TranslationVars,
+} from "./i18n";
 // import 'bigint-polyfill'; // Removed, likely unnecessary
 
 // --- Interfaces ---
@@ -205,6 +212,7 @@ export default class DinoPlugin extends Plugin {
 	settings: DinoPluginSettings;
 	statusBarItemEl: HTMLElement;
 	isSyncing = false; // Prevent concurrent syncs
+	private currentLocale: LocaleCode = "en";
 	private commandRefs: Partial<Record<DinoCommandKey, Command>> = {};
 	private hotkeyScope: Scope | null = null;
 	private hotkeyHandlers: Partial<Record<DinoCommandKey, KeymapEventHandler>> =
@@ -217,6 +225,33 @@ export default class DinoPlugin extends Plugin {
 		  }
 		| null = null;
 	private autoSyncIntervalId: number | null = null;
+
+	public refreshLocale(): void {
+		this.currentLocale = getCurrentLocale(this.app);
+		this.updateStatusBarLabel();
+	}
+
+	public t(key: TranslationKey, vars?: TranslationVars): string {
+		return translate(this.currentLocale, key, vars);
+	}
+
+	private updateStatusBarLabel(): void {
+		if (!this.statusBarItemEl) {
+			return;
+		}
+		const label = this.t("statusBar.ariaLabel");
+		this.statusBarItemEl.setAttribute("aria-label", label);
+		this.statusBarItemEl.setText(
+			this.isSyncing
+				? this.t("statusBar.syncing")
+				: this.t("statusBar.text")
+		);
+	}
+
+	private setStatusBarSyncingState(isSyncing: boolean): void {
+		this.isSyncing = isSyncing;
+		this.updateStatusBarLabel();
+	}
 
 	getHotkeyDisplay(commandKey: DinoCommandKey): string {
 		const sanitized = sanitizeHotkeySetting(
@@ -374,7 +409,7 @@ export default class DinoPlugin extends Plugin {
 		onClear: () => void
 	): void {
 		this.cancelHotkeyCapture(true);
-		displayEl.textContent = "Press shortcut… (Esc to cancel)";
+		displayEl.textContent = this.t("settings.hotkeys.prompt");
 
 		const listener = (event: KeyboardEvent) => {
 			event.preventDefault();
@@ -424,7 +459,7 @@ export default class DinoPlugin extends Plugin {
 		if (restoreLabel) {
 			const label =
 				this.getHotkeyDisplay(this.activeHotkeyCapture.commandKey) ||
-				"Not set";
+				this.t("settings.hotkeys.notSet");
 			this.activeHotkeyCapture.displayEl.textContent = label;
 		}
 
@@ -502,14 +537,14 @@ export default class DinoPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings(); // Loads settings like token, dir etc.
+		this.refreshLocale();
 
 		// Status Bar
 		this.statusBarItemEl = this.addStatusBarItem();
-		this.statusBarItemEl.setText("Dinox");
-		this.statusBarItemEl.setAttribute("aria-label", "Dinox Sync status");
+		this.updateStatusBarLabel();
 		this.registerDomEvent(this.statusBarItemEl, "click", async () => {
 			if (this.isSyncing) {
-				new Notice("Dinox: Sync already in progress.");
+				new Notice(this.t("notice.syncInProgress"));
 				return;
 			}
 			await this.syncNotes();
@@ -521,20 +556,20 @@ export default class DinoPlugin extends Plugin {
 		// Commands
 		this.commandRefs.syncAll = this.addCommand({
 			id: "dinox-sync-command",
-			name: "Synchronize Dinox notes now",
+			name: this.t("command.syncAll"),
 			hotkeys: this.getHotkeysForCommand("syncAll"),
 			callback: async () => {
 				if (!this.isSyncing) {
 					await this.syncNotes();
 				} else {
-					new Notice("Dinox: Sync already in progress.");
+					new Notice(this.t("notice.syncInProgress"));
 				}
 			},
 		});
 
 		this.addCommand({
 			id: "dinox-reset-sync-command",
-			name: "Reset Dinox Sync (fetch all next time)",
+			name: this.t("command.resetSync"),
 			callback: async () => {
 				// Reset only lastSyncTime as per original logic
 				const pData = (await this.loadData()) || {};
@@ -542,25 +577,27 @@ export default class DinoPlugin extends Plugin {
 					...pData, // Preserve other potential saved data (like settings)
 					lastSyncTime: "1900-01-01 00:00:00", // Use the original reset value
 				});
-				new Notice(
-					"Dinox: Sync reset. Next sync will fetch all notes."
-				);
+				new Notice(this.t("notice.syncReset"));
 			},
 		});
 
 		this.addCommand({
 			id: "dinox-sync-note-to-local-command",
-			name: "Sync dinox note to local",
+			name: this.t("command.syncToLocal"),
 			callback: async () => {
 				if (!this.isSyncing) {
 					try {
 						await this.syncNotes();
 					} catch (error) {
 						console.error("Dinox: Sync failed:", error);
-						new Notice(`Dinox: Sync failed - ${getErrorMessage(error)}`);
+						new Notice(
+							this.t("notice.syncCommandFailed", {
+								error: getErrorMessage(error),
+							})
+						);
 					}
 				} else {
-					new Notice("Dinox: Sync already in progress.");
+					new Notice(this.t("notice.syncInProgress"));
 				}
 			},
 		});
@@ -568,7 +605,7 @@ export default class DinoPlugin extends Plugin {
 		// Add command for syncToDinox with keyboard shortcut
 		this.commandRefs.syncCurrentNote = this.addCommand({
 			id: "dinox-sync-current-note-command",
-			name: "Sync current note to Dinox",
+			name: this.t("command.syncCurrentNote"),
 			hotkeys: this.getHotkeysForCommand("syncCurrentNote"),
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -585,7 +622,7 @@ export default class DinoPlugin extends Plugin {
 		// Add command for createNoteToDinox with keyboard shortcut
 		this.commandRefs.createNote = this.addCommand({
 			id: "dinox-create-note-command",
-			name: "Create current note into Dinox",
+			name: this.t("command.createNote"),
 			hotkeys: this.getHotkeysForCommand("createNote"),
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -628,7 +665,9 @@ export default class DinoPlugin extends Plugin {
 								: selectedText;
 
 						menu.addItem((item: MenuItem) => {
-							item.setTitle(`Select"${trimText}" and send to Dinox`)
+							item.setTitle(
+								this.t("menu.sendSelection", { selection: trimText })
+							)
 								.setIcon("upload") // Optional icon
 								.onClick(() => this.sendToDinox(selectedText));
 						});
@@ -642,7 +681,7 @@ export default class DinoPlugin extends Plugin {
 						
 						if (!noteId) {
 							menu.addItem((item: MenuItem) => {
-								item.setTitle("Create into Dinox")
+								item.setTitle(this.t("menu.create"))
 									.setIcon("plus") // Optional icon
 									.onClick(() => this.createNoteToDinox(editor, file));
 							});
@@ -652,7 +691,7 @@ export default class DinoPlugin extends Plugin {
 					if (editor && file) {
 						// ... (syncToDinox menu item code from previous version) ...
 						menu.addItem((item: MenuItem) => {
-							item.setTitle("Sync this note to Dinox")
+							item.setTitle(this.t("menu.syncCurrent"))
 								.setIcon("sync") // Optional icon
 								.onClick(() => this.syncToDinox(editor, file)); // Pass file
 						});
@@ -699,18 +738,17 @@ export default class DinoPlugin extends Plugin {
 
 	async syncNotes() {
 		if (this.isSyncing) {
-			new Notice("Dinox: Sync already in progress.");
+			new Notice(this.t("notice.syncInProgress"));
 			return;
 		}
 		if (!this.settings.token) {
-			new Notice("Dinox: Token not set. Please configure the plugin.");
+			new Notice(this.t("notice.tokenMissing"));
 			return;
 		}
 
-		this.isSyncing = true;
-		this.statusBarItemEl.setText("Dinox: Syncing...");
+		this.setStatusBarSyncingState(true);
 		this.statusBarItemEl.addClass("is-syncing");
-		const notice = new Notice("Dinox: Starting sync...", 0);
+		const notice = new Notice(this.t("notice.syncStarting"), 0);
 
 		const syncStartTime = new Date(); // Use this for the *next* lastSyncTime
 		let processedCount = 0;
@@ -755,16 +793,20 @@ export default class DinoPlugin extends Plugin {
 				lastSyncTime: newLastSyncTime, // Update the timestamp
 			});
 			notice.setMessage(
-				`Dinox: Sync complete!\nProcessed: ${processedCount}, Deleted: ${deletedCount}`
+				this.t("notice.syncComplete", {
+					processed: processedCount,
+					deleted: deletedCount,
+				})
 			);
 		} catch (error) {
 			errorOccurred = true;
 			console.error("Dinox: Sync failed:", error);
-			notice.setMessage(`Dinox: Sync failed!\n${getErrorMessage(error)}`);
+			notice.setMessage(
+				this.t("notice.syncFailed", { error: getErrorMessage(error) })
+			);
 			// Do NOT update lastSyncTime on error
 		} finally {
-			this.isSyncing = false;
-			this.statusBarItemEl.setText("Dinox");
+			this.setStatusBarSyncingState(false);
 			this.statusBarItemEl.removeClass("is-syncing");
 			setTimeout(() => notice.hide(), errorOccurred ? 10000 : 5000);
 		}
@@ -849,13 +891,8 @@ export default class DinoPlugin extends Plugin {
 						`Dinox: Failed to process note ${noteData.noteId}:`,
 						noteError
 					);
-					new Notice(
-						`Failed to process Dinox note ${noteData.noteId.substring(
-							0,
-							8
-						)}...`,
-						5000
-					);
+					const shortId = noteData.noteId.substring(0, 8);
+					new Notice(this.t("notice.processNoteFailed", { noteId: shortId }), 5000);
 					// Decide whether to stop sync or continue processing other notes
 					// throw noteError; // Uncomment to stop entire sync on one note failure
 				}
@@ -1061,10 +1098,10 @@ export default class DinoPlugin extends Plugin {
 	async sendToDinox(content: string) {
 		// ... (Implementation from the previous full refactored code) ...
 		if (!this.settings.token) {
-			new Notice("Dinox: Please set Dinox token first");
+			new Notice(this.t("notice.tokenMissing"));
 			return;
 		}
-		new Notice("Dinox: Sending selection...");
+		new Notice(this.t("notice.selectionSending"));
 		try {
 			const title =
 				content.split("\n")[0].substring(0, 50) ||
@@ -1085,28 +1122,32 @@ export default class DinoPlugin extends Plugin {
 			});
 			const resultJson = resp.json;
 			if (resultJson.code === "000000") {
-				new Notice("Dinox: Content sent successfully");
+				new Notice(this.t("notice.selectionSent"));
 			} else {
 				console.error("Dinox send failed:", resultJson);
+				const message =
+					resultJson.msg ?? this.t("common.unknownError");
 				new Notice(
-					`Dinox: Failed to send - ${
-						resultJson.msg || "Unknown error"
-					}`
+					this.t("notice.selectionSendFailed", { message })
 				);
 			}
 		} catch (error) {
 			console.error("Dinox: Error sending content:", error);
-			new Notice(`Dinox: Error sending - ${getErrorMessage(error)}`);
+			new Notice(
+				this.t("notice.selectionSendError", {
+					error: getErrorMessage(error),
+				})
+			);
 		}
 	}
 
 	async createNoteToDinox(editor: Editor, file: TFile) {
 		if (!this.settings.token) {
-			new Notice("Dinox: Please set Dinox token first");
+			new Notice(this.t("notice.tokenMissing"));
 			return;
 		}
 		
-		new Notice("Dinox: Creating note in Dinox...");
+		new Notice(this.t("notice.creatingNote"));
 		
 		const fileContent = await this.app.vault.cachedRead(file);
 		const fileCache = this.app.metadataCache.getFileCache(file);
@@ -1151,19 +1192,21 @@ export default class DinoPlugin extends Plugin {
 				await this.addNoteIdToFrontmatter(file, createdNoteId);
 				
 				new Notice(
-					`Dinox: Note created successfully with ID: ${createdNoteId.substring(0, 8)}...`
+					this.t("notice.createSuccess", {
+						noteId: createdNoteId.substring(0, 8),
+					})
 				);
 			} else {
 				console.error("Dinox create failed:", resultJson);
-				new Notice(
-					`Dinox: Failed to create note - ${
-						resultJson.msg || "Unknown error"
-					}`
-				);
+				const message =
+					resultJson.msg ?? this.t("common.unknownError");
+				new Notice(this.t("notice.createFailed", { message }));
 			}
 		} catch (error) {
 			console.error("Dinox: Error creating note:", error);
-			new Notice(`Dinox: Error creating note - ${error.message}`);
+			new Notice(
+				this.t("notice.createError", { error: getErrorMessage(error) })
+			);
 		}
 	}
 	
@@ -1207,26 +1250,28 @@ export default class DinoPlugin extends Plugin {
 			);
 		} catch (error) {
 			console.error("Dinox: Error adding noteId to frontmatter:", error);
-			new Notice(`Dinox: Error updating frontmatter - ${error.message}`);
+			new Notice(
+				this.t("notice.frontmatterError", {
+					error: getErrorMessage(error),
+				})
+			);
 		}
 	}
 
 	async syncToDinox(editor: Editor, file: TFile) {
 		// ... (Implementation from the previous full refactored code, check payload key 'contentMd' vs 'content') ...
 		if (!this.settings.token) {
-			new Notice("Dinox: Please set Dinox token first");
+			new Notice(this.t("notice.tokenMissing"));
 			return;
 		}
-		new Notice("Dinox: Syncing note to Dinox...");
+		new Notice(this.t("notice.syncingNote"));
 		const fileContent = await this.app.vault.cachedRead(file);
 		const fileCache = this.app.metadataCache.getFileCache(file);
 		const frontmatter = fileCache?.frontmatter;
 		const noteId = frontmatter?.noteId || frontmatter?.source_app_id;
 
 		if (!noteId) {
-			new Notice(
-				"Dinox: Cannot sync. Note ID (noteId or source_app_id) not found in frontmatter."
-			);
+			new Notice(this.t("notice.syncNoId"));
 			return;
 		}
 
@@ -1262,22 +1307,23 @@ export default class DinoPlugin extends Plugin {
 			const resultJson = resp.json;
 			if (resultJson.code === "000000") {
 				new Notice(
-					`Dinox: Note ${noteId.substring(
-						0,
-						8
-					)}... synced successfully`
+					this.t("notice.syncNoteSuccess", {
+						noteId: noteId.substring(0, 8),
+					})
 				);
 			} else {
 				console.error("Dinox sync update failed:", resultJson);
-				new Notice(
-					`Dinox: Failed to sync note - ${
-						resultJson.msg || "Unknown error"
-					}`
-				);
+				const message =
+					resultJson.msg ?? this.t("common.unknownError");
+				new Notice(this.t("notice.syncNoteFailed", { message }));
 			}
 		} catch (error) {
 			console.error("Dinox: Error syncing note:", error);
-			new Notice(`Dinox: Error syncing note - ${getErrorMessage(error)}`);
+			new Notice(
+				this.t("notice.syncNoteError", {
+					error: getErrorMessage(error),
+				})
+			);
 		}
 	}
 }
@@ -1294,16 +1340,18 @@ class DinoSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		this.plugin.cancelHotkeyCapture(false);
+		this.plugin.refreshLocale();
+		const t = this.plugin.t.bind(this.plugin);
 		containerEl.empty();
-		containerEl.createEl("h2", { text: "Dinox Sync Settings" });
+		containerEl.createEl("h2", { text: t("settings.title") });
 
 		// Token
 		new Setting(containerEl)
-			.setName("Dinox Token")
-			.setDesc("API token generated from the Dinox application.")
+			.setName(t("settings.token.name"))
+			.setDesc(t("settings.token.desc"))
 			.addText((text) =>
 				text
-					.setPlaceholder("Enter Your Dinox Token")
+					.setPlaceholder(t("settings.token.placeholder"))
 					.setValue(this.plugin.settings.token)
 					.onChange(async (value) => {
 						this.plugin.settings.token = value.trim();
@@ -1313,11 +1361,11 @@ class DinoSettingTab extends PluginSettingTab {
 
 		// Sync Directory
 		new Setting(containerEl)
-			.setName("Sync Directory")
-			.setDesc("The base folder in your Obsidian vault for synced notes.")
+			.setName(t("settings.dir.name"))
+			.setDesc(t("settings.dir.desc"))
 			.addText((text) =>
 				text
-					.setPlaceholder("e.g., Dinox Notes")
+					.setPlaceholder(t("settings.dir.placeholder"))
 					.setValue(this.plugin.settings.dir)
 					.onChange(async (value) => {
 						this.plugin.settings.dir =
@@ -1327,18 +1375,18 @@ class DinoSettingTab extends PluginSettingTab {
 					})
 			);
 
+		containerEl.createEl("h3", { text: t("settings.filenameHeading") });
+
 		// Filename Format
 		new Setting(containerEl)
-			.setName("Filename Format")
-			.setDesc(
-				"Choose how synced note files should be named (appends '_dinox.md')."
-			)
+			.setName(t("settings.filename.name"))
+			.setDesc(t("settings.filename.desc"))
 			.addDropdown((dropdown) => {
 				dropdown
 					// Keep options, ID is generally safer if titles can change often
-					.addOption("noteId", "Note ID (Recommended)")
-					.addOption("title", "Note Title (Sanitized)")
-					.addOption("time", "Creation Time (YYYY-MM-DD HHMMSS)")
+					.addOption("noteId", t("settings.filename.optionId"))
+					.addOption("title", t("settings.filename.optionTitle"))
+					.addOption("time", t("settings.filename.optionTime"))
 					.setValue(this.plugin.settings.filenameFormat)
 					.onChange(async (value: "noteId" | "title" | "time") => {
 						this.plugin.settings.filenameFormat = value;
@@ -1348,15 +1396,15 @@ class DinoSettingTab extends PluginSettingTab {
 
 		// File Layout
 		new Setting(containerEl)
-			.setName("File Layout")
-			.setDesc("Organize synced notes.")
+			.setName(t("settings.layout.name"))
+			.setDesc(t("settings.layout.desc"))
 			.addDropdown((dropdown) => {
 				dropdown
 					.addOption(
 						"nested",
-						"Nested (Base Dir / YYYY-MM-DD / file.md)"
+						t("settings.layout.optionNested")
 					)
-					.addOption("flat", "Flat (Base Dir / file.md)")
+					.addOption("flat", t("settings.layout.optionFlat"))
 					.setValue(this.plugin.settings.fileLayout)
 					.onChange(async (value: "flat" | "nested") => {
 						this.plugin.settings.fileLayout = value;
@@ -1364,13 +1412,11 @@ class DinoSettingTab extends PluginSettingTab {
 					});
 			});
 		new Setting(containerEl)
-			.setName("Ignore Sync Property Key")
-			.setDesc(
-				"Enter the note property (frontmatter key) used to prevent updates during sync. If this key exists in a note's frontmatter and its value is exactly 'true', the note will not be updated by the sync."
-			)
+			.setName(t("settings.ignoreKey.name"))
+			.setDesc(t("settings.ignoreKey.desc"))
 			.addText((text) =>
 				text
-					.setPlaceholder("e.g., ignore_sync")
+					.setPlaceholder(this.plugin.settings.ignoreSyncKey)
 					.setValue(this.plugin.settings.ignoreSyncKey)
 					.onChange(async (value) => {
 						// Basic validation: trim and ensure it's a valid potential key (simple check)
@@ -1383,14 +1429,10 @@ class DinoSettingTab extends PluginSettingTab {
 							this.plugin.settings.ignoreSyncKey =
 								DEFAULT_SETTINGS.ignoreSyncKey; // Revert to default if cleared or invalid
 							// Maybe show a notice?
-							new Notice(
-								"Invalid ignore key. Reverted to default."
-							);
+							new Notice(t("notice.invalidIgnoreKeyReverted"));
 							text.setValue(this.plugin.settings.ignoreSyncKey); // Update UI
 						} else {
-							new Notice(
-								"Invalid ignore key: Cannot contain spaces."
-							);
+							new Notice(t("notice.invalidIgnoreKeySpaces"));
 							// Keep the old value or revert to default? Let's revert.
 							this.plugin.settings.ignoreSyncKey =
 								DEFAULT_SETTINGS.ignoreSyncKey;
@@ -1401,16 +1443,14 @@ class DinoSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Preserve Properties Keys")
-			.setDesc(
-				"Enter a comma-separated list of property keys (frontmatter keys) whose values should be preserved from the existing note in Obsidian during an update. These values will be kept even if the incoming data from Dinox is different."
-			)
+			.setName(t("settings.preserveKeys.name"))
+			.setDesc(t("settings.preserveKeys.desc"))
 			.addTextArea(
 				(
 					text // Use TextArea for potentially longer lists
 				) =>
 					text
-						.setPlaceholder("e.g., tags, aliases, status, project")
+						.setPlaceholder(t("settings.preserveKeys.placeholder"))
 						.setValue(this.plugin.settings.preserveKeys)
 						.onChange(async (value) => {
 							// Store the raw comma-separated string
@@ -1420,10 +1460,8 @@ class DinoSettingTab extends PluginSettingTab {
 			);
 		// Content Template (Sent to API)
 		new Setting(containerEl)
-			.setName("Content Template (Sent to API)")
-			.setDesc(
-				"This template is sent to the Dinox API during sync requests. The API should apply it to generate the note content."
-			)
+			.setName(t("settings.template.name"))
+			.setDesc(t("settings.template.desc"))
 			.addTextArea((text) => {
 				text.setPlaceholder(DEFAULT_TEMPLATE_TEXT)
 					.setValue(this.plugin.settings.template)
@@ -1438,10 +1476,8 @@ class DinoSettingTab extends PluginSettingTab {
 
 		// Auto Sync Toggle
 		new Setting(containerEl)
-			.setName("Enable Auto Sync")
-			.setDesc(
-				"Automatically sync notes every 30 minutes while Obsidian is open."
-			)
+			.setName(t("settings.autoSync.name"))
+			.setDesc(t("settings.autoSync.desc"))
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.isAutoSync)
@@ -1451,46 +1487,44 @@ class DinoSettingTab extends PluginSettingTab {
 						this.plugin.refreshAutoSyncSchedule();
 						new Notice(
 							value
-								? "Dinox: Auto sync enabled."
-								: "Dinox: Auto sync disabled."
+								? this.plugin.t("notice.autoSyncEnabled")
+								: this.plugin.t("notice.autoSyncDisabled")
 						);
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Hotkeys" });
+		containerEl.createEl("h3", { text: t("settings.section.hotkeys") });
 		this.addHotkeySetting(
 			containerEl,
-			"Manual sync command",
-			"Runs “Synchronize Dinox notes now”. Example: Mod+Shift+T. Leave blank to use only Obsidian’s Hotkeys tab.",
+			t("settings.hotkeys.syncAll.name"),
+			t("settings.hotkeys.syncAll.desc"),
 			"syncAll"
 		);
 		this.addHotkeySetting(
 			containerEl,
-			"Sync current note command",
-			"Sends the active note to Dinox. Example: Mod+Shift+K.",
+			t("settings.hotkeys.syncCurrent.name"),
+			t("settings.hotkeys.syncCurrent.desc"),
 			"syncCurrentNote"
 		);
 		this.addHotkeySetting(
 			containerEl,
-			"Create note in Dinox command",
-			"Creates a remote note if the current file lacks a noteId. Example: Mod+Shift+C.",
+			t("settings.hotkeys.create.name"),
+			t("settings.hotkeys.create.desc"),
 			"createNote"
 		);
 
 		// Reset Sync Button (Simplified)
-		containerEl.createEl("h3", { text: "Advanced" });
+		containerEl.createEl("h3", { text: t("settings.section.advanced") });
 		new Setting(containerEl)
-			.setName("Reset Sync State")
-			.setDesc(
-				"Clears the last sync time. The next sync will fetch and process all notes from Dinox. Use this if you suspect sync issues."
-			)
+			.setName(t("settings.advanced.reset.name"))
+			.setDesc(t("settings.advanced.reset.desc"))
 			.addButton((button) =>
 				button
-					.setButtonText("Reset Sync Time")
+					.setButtonText(t("settings.advanced.resetButton"))
 					.setWarning()
 					.onClick(async () => {
 						const confirmed = confirm(
-							"Are you sure you want to reset the Dinox last sync time? The next sync will fetch all notes."
+							t("settings.advanced.confirm")
 						);
 						if (confirmed) {
 							// Use the reset command logic directly
@@ -1499,7 +1533,7 @@ class DinoSettingTab extends PluginSettingTab {
 								...pData,
 								lastSyncTime: "1900-01-01 00:00:00",
 							});
-							new Notice("Dinox last sync time has been reset.");
+							new Notice(this.plugin.t("notice.resetDone"));
 						}
 					})
 			);
@@ -1511,6 +1545,7 @@ class DinoSettingTab extends PluginSettingTab {
 		description: string,
 		commandKey: DinoCommandKey
 	): void {
+		const t = this.plugin.t.bind(this.plugin);
 		const setting = new Setting(containerEl)
 			.setName(label)
 			.setDesc(description);
@@ -1521,7 +1556,8 @@ class DinoSettingTab extends PluginSettingTab {
 
 		const updateDisplay = () => {
 			const labelText = this.plugin.getHotkeyDisplay(commandKey);
-			displayEl.textContent = labelText || "Not set";
+			displayEl.textContent =
+				labelText || t("settings.hotkeys.notSet");
 		};
 
 		const applySetting = async (
@@ -1536,8 +1572,10 @@ class DinoSettingTab extends PluginSettingTab {
 				const labelText = this.plugin.getHotkeyDisplay(commandKey);
 				new Notice(
 					labelText
-						? `Dinox: Hotkey set to ${labelText}`
-						: "Dinox: Hotkey cleared."
+						? this.plugin.t("notice.hotkeySet", {
+								hotkey: labelText,
+						  })
+						: this.plugin.t("notice.hotkeyCleared")
 				);
 			}
 		};
@@ -1549,7 +1587,7 @@ class DinoSettingTab extends PluginSettingTab {
 		);
 
 		new ButtonComponent(actionsEl)
-			.setButtonText("Set")
+			.setButtonText(t("settings.hotkeys.setButton"))
 			.onClick(() => {
 				this.plugin.beginHotkeyCapture(
 					commandKey,
@@ -1562,15 +1600,15 @@ class DinoSettingTab extends PluginSettingTab {
 					}
 				);
 			})
-			.setTooltip("Capture a shortcut");
+			.setTooltip(t("settings.hotkeys.setTooltip"));
 
 		new ButtonComponent(actionsEl)
-			.setButtonText("Clear")
+			.setButtonText(t("settings.hotkeys.clearButton"))
 			.onClick(async () => {
 				this.plugin.cancelHotkeyCapture(false);
 				await applySetting(null);
 			})
-			.setTooltip("Remove this shortcut");
+			.setTooltip(t("settings.hotkeys.clearTooltip"));
 
 		setting.settingEl.classList.add("dinox-hotkey-setting");
 	}
