@@ -12,6 +12,9 @@ import {
     normalizePath,
     TFile,
     TFolder,
+    Hotkey,
+    Modifier,
+    Command,
 } from "obsidian";
 // import 'bigint-polyfill'; // Removed, likely unnecessary
 
@@ -48,9 +51,19 @@ interface DinoPluginSettings {
 	fileLayout: "flat" | "nested";
 	ignoreSyncKey: string;
 	preserveKeys: string; // <<< New setting: Comma-separated keys to preserve
+	commandHotkeys: DinoHotkeyMap;
 
 	// Removed lastSyncTime and noteMapping - will load/save dynamically like original
 }
+
+type DinoCommandKey = "syncAll" | "syncCurrentNote" | "createNote";
+
+interface DinoHotkeySetting {
+	modifiers: Modifier[];
+	key: string;
+}
+
+type DinoHotkeyMap = Record<DinoCommandKey, DinoHotkeySetting>;
 
 // --- Constants ---
 // Default template text for the settings UI
@@ -77,6 +90,18 @@ updateTime: {{updateTime}}
 {{content}}
 `;
 
+function createEmptyHotkey(): DinoHotkeySetting {
+	return { modifiers: [], key: "" };
+}
+
+function createDefaultHotkeys(): DinoHotkeyMap {
+	return {
+		syncAll: createEmptyHotkey(),
+		syncCurrentNote: createEmptyHotkey(),
+		createNote: createEmptyHotkey(),
+	};
+}
+
 const DEFAULT_SETTINGS: DinoPluginSettings = {
 	token: "",
 	isAutoSync: false,
@@ -86,10 +111,44 @@ const DEFAULT_SETTINGS: DinoPluginSettings = {
 	fileLayout: "nested",
 	ignoreSyncKey: "ignore_sync",
 	preserveKeys: "",
+	commandHotkeys: createDefaultHotkeys(),
 };
 
 const API_BASE_URL = "https://dinoai.chatgo.pro";
 const API_BASE_URL_AI = "https://aisdk.chatgo.pro";
+const VALID_MODIFIERS: Modifier[] = ["Mod", "Ctrl", "Meta", "Shift", "Alt"];
+
+function sanitizeHotkeySetting(
+	setting: DinoHotkeySetting | undefined
+): DinoHotkeySetting {
+	if (!setting) return createEmptyHotkey();
+	const keyValue = typeof setting.key === "string" ? setting.key : "";
+	const rawModifiers = Array.isArray(setting.modifiers)
+		? setting.modifiers
+		: [];
+	const deduped: Modifier[] = [];
+	for (const maybeMod of rawModifiers) {
+		if (
+			typeof maybeMod === "string" &&
+			(VALID_MODIFIERS as string[]).includes(maybeMod) &&
+			!deduped.includes(maybeMod as Modifier)
+		) {
+			deduped.push(maybeMod as Modifier);
+		}
+	}
+	return {
+		key: keyValue,
+		modifiers: deduped,
+	};
+}
+
+function cloneHotkeyMap(map?: Partial<DinoHotkeyMap>): DinoHotkeyMap {
+	return {
+		syncAll: sanitizeHotkeySetting(map?.syncAll),
+		syncCurrentNote: sanitizeHotkeySetting(map?.syncCurrentNote),
+		createNote: sanitizeHotkeySetting(map?.createNote),
+	};
+}
 
 // Ensure safe error message extraction without assuming Error type
 function getErrorMessage(error: unknown): string {
@@ -130,6 +189,176 @@ export default class DinoPlugin extends Plugin {
 	settings: DinoPluginSettings;
 	statusBarItemEl: HTMLElement;
 	isSyncing = false; // Prevent concurrent syncs
+	private commandRefs: Partial<Record<DinoCommandKey, Command>> = {};
+
+	getHotkeyDisplay(commandKey: DinoCommandKey): string {
+		const config = this.settings.commandHotkeys?.[commandKey];
+		if (!config || !config.key) return "";
+		return [...config.modifiers, config.key].join("+");
+	}
+
+	parseHotkeyInput(input: string): DinoHotkeySetting | null {
+		const trimmed = input.trim();
+		if (trimmed.length === 0) {
+			return createEmptyHotkey();
+		}
+
+		const segments = trimmed
+			.split("+")
+			.map((segment) => segment.trim())
+			.filter((segment) => segment.length > 0);
+		if (segments.length === 0) {
+			return null;
+		}
+
+		const keySegment = segments.pop() as string;
+		const normalizedKey = this.normalizeKeyInput(keySegment);
+		if (!normalizedKey) {
+			return null;
+		}
+
+		const modifiers: Modifier[] = [];
+		for (const segment of segments) {
+			const modifier = this.normalizeModifierInput(segment);
+			if (!modifier) {
+				return null;
+			}
+			if (!modifiers.includes(modifier)) {
+				modifiers.push(modifier);
+			}
+		}
+
+		return sanitizeHotkeySetting({
+			key: normalizedKey,
+			modifiers,
+		});
+	}
+
+	updateCommandHotkeys(commandKey: DinoCommandKey): void {
+		const command = this.commandRefs[commandKey];
+		if (!command) return;
+		const hotkeys = this.getHotkeysForCommand(commandKey);
+		command.hotkeys = hotkeys;
+
+		type AppWithInternals = App & {
+			commands?: { commands: Record<string, Command> };
+			hotkeyManager?: {
+				setHotkey?: (id: string, hotkeys: Hotkey[]) => void;
+				save?: () => void;
+			};
+		};
+		const appWithInternals = this.app as AppWithInternals;
+		const registry = appWithInternals.commands?.commands;
+		if (registry && registry[command.id]) {
+			registry[command.id].hotkeys = hotkeys;
+		}
+		if (appWithInternals.hotkeyManager?.setHotkey) {
+			appWithInternals.hotkeyManager.setHotkey(command.id, hotkeys);
+			appWithInternals.hotkeyManager.save?.();
+		}
+	}
+
+	private getHotkeysForCommand(commandKey: DinoCommandKey): Hotkey[] {
+		const config = this.settings.commandHotkeys?.[commandKey];
+		if (!config || !config.key) {
+			return [];
+		}
+		return [
+			{
+				key: config.key,
+				modifiers: [...config.modifiers],
+			},
+		];
+	}
+
+	private applyAllCommandHotkeys(): void {
+		(["syncAll", "syncCurrentNote", "createNote"] as DinoCommandKey[]).forEach(
+			(commandKey) => this.updateCommandHotkeys(commandKey)
+		);
+	}
+
+	private areHotkeysEqual(
+		first: DinoHotkeySetting,
+		second: DinoHotkeySetting
+	): boolean {
+		if (first.key !== second.key) {
+			return false;
+		}
+		if (first.modifiers.length !== second.modifiers.length) {
+			return false;
+		}
+		return first.modifiers.every(
+			(modifier, index) => modifier === second.modifiers[index]
+		);
+	}
+
+	async applyHotkeySetting(
+		commandKey: DinoCommandKey,
+		setting: DinoHotkeySetting
+	): Promise<boolean> {
+		const sanitized = sanitizeHotkeySetting(setting);
+		const current =
+			this.settings.commandHotkeys?.[commandKey] || createEmptyHotkey();
+		if (this.areHotkeysEqual(current, sanitized)) {
+			return false;
+		}
+		this.settings.commandHotkeys[commandKey] = sanitized;
+		await this.saveSettings();
+		this.updateCommandHotkeys(commandKey);
+		return true;
+	}
+
+	private normalizeModifierInput(value: string): Modifier | null {
+		const normalized = value.toLowerCase();
+		switch (normalized) {
+			case "mod":
+			case "cmd":
+			case "command":
+				return "Mod";
+			case "ctrl":
+			case "control":
+				return "Ctrl";
+			case "meta":
+			case "win":
+			case "windows":
+				return "Meta";
+			case "shift":
+				return "Shift";
+			case "alt":
+			case "option":
+				return "Alt";
+			default:
+				if (
+					(VALID_MODIFIERS as string[]).includes(value) &&
+					VALID_MODIFIERS.includes(value as Modifier)
+				) {
+					return value as Modifier;
+				}
+				return null;
+		}
+	}
+
+	private normalizeKeyInput(value: string): string | null {
+		const normalized = value.trim();
+		if (!normalized) {
+			return null;
+		}
+
+		const lower = normalized.toLowerCase();
+		if ((VALID_MODIFIERS as string[]).includes(normalized)) {
+			return null;
+		}
+		if (lower === "space") {
+			return " ";
+		}
+		if (/^f\d{1,2}$/i.test(normalized)) {
+			return normalized.toUpperCase();
+		}
+		if (normalized.length === 1) {
+			return normalized.toUpperCase();
+		}
+		return normalized;
+	}
 
 	async onload() {
 		await this.loadSettings(); // Loads settings like token, dir etc.
@@ -150,9 +379,10 @@ export default class DinoPlugin extends Plugin {
 		this.addSettingTab(new DinoSettingTab(this.app, this));
 
 		// Commands
-		this.addCommand({
+		this.commandRefs.syncAll = this.addCommand({
 			id: "dinox-sync-command",
 			name: "Synchronize Dinox notes now",
+			hotkeys: this.getHotkeysForCommand("syncAll"),
 			callback: async () => {
 				if (!this.isSyncing) {
 					await this.syncNotes();
@@ -196,9 +426,10 @@ export default class DinoPlugin extends Plugin {
 		});
 
 		// Add command for syncToDinox with keyboard shortcut
-		this.addCommand({
+		this.commandRefs.syncCurrentNote = this.addCommand({
 			id: "dinox-sync-current-note-command",
 			name: "Sync current note to Dinox",
+			hotkeys: this.getHotkeysForCommand("syncCurrentNote"),
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (activeView && activeView.file) {
@@ -212,9 +443,10 @@ export default class DinoPlugin extends Plugin {
 		});
 
 		// Add command for createNoteToDinox with keyboard shortcut
-		this.addCommand({
+		this.commandRefs.createNote = this.addCommand({
 			id: "dinox-create-note-command",
 			name: "Create current note into Dinox",
+			hotkeys: this.getHotkeysForCommand("createNote"),
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (activeView && activeView.file) {
@@ -234,8 +466,7 @@ export default class DinoPlugin extends Plugin {
 			},
 		});
 
-	
-
+		this.applyAllCommandHotkeys();
 
 		// Editor Menu Items (Push to Dinox - Kept as potentially useful)
 		this.registerEvent(
@@ -306,11 +537,14 @@ export default class DinoPlugin extends Plugin {
 	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS, // Includes the new default ignoreSyncKey
-			await this.loadData()
-		);
+		const stored = (await this.loadData()) as
+			| Partial<DinoPluginSettings>
+			| undefined;
+		this.settings = {
+			...DEFAULT_SETTINGS,
+			...stored,
+			commandHotkeys: cloneHotkeyMap(stored?.commandHotkeys),
+		};
 		// Ensure ignoreSyncKey has a default if loading old data without it
 		if (!this.settings.ignoreSyncKey) {
 			this.settings.ignoreSyncKey = DEFAULT_SETTINGS.ignoreSyncKey;
@@ -323,6 +557,9 @@ export default class DinoPlugin extends Plugin {
 	async saveSettings() {
 		// Saves only the defined settings object
 		const pData = (await this.loadData()) || {};
+		this.settings.commandHotkeys = cloneHotkeyMap(
+			this.settings.commandHotkeys
+		);
 		await this.saveData({ ...pData, ...this.settings }); // Merge settings with existing data
 	}
 
@@ -1084,6 +1321,26 @@ class DinoSettingTab extends PluginSettingTab {
 					})
 			);
 
+		containerEl.createEl("h3", { text: "Hotkeys" });
+		this.addHotkeySetting(
+			containerEl,
+			"Manual sync command",
+			"Runs “Synchronize Dinox notes now”. Example: Mod+Shift+T. Leave blank to use only Obsidian’s Hotkeys tab.",
+			"syncAll"
+		);
+		this.addHotkeySetting(
+			containerEl,
+			"Sync current note command",
+			"Sends the active note to Dinox. Example: Mod+Shift+K.",
+			"syncCurrentNote"
+		);
+		this.addHotkeySetting(
+			containerEl,
+			"Create note in Dinox command",
+			"Creates a remote note if the current file lacks a noteId. Example: Mod+Shift+C.",
+			"createNote"
+		);
+
 		// Reset Sync Button (Simplified)
 		containerEl.createEl("h3", { text: "Advanced" });
 		new Setting(containerEl)
@@ -1110,5 +1367,63 @@ class DinoSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+	}
+
+	private addHotkeySetting(
+		containerEl: HTMLElement,
+		label: string,
+		description: string,
+		commandKey: DinoCommandKey
+	): void {
+		let pendingValue = this.plugin.getHotkeyDisplay(commandKey);
+		const setting = new Setting(containerEl)
+			.setName(label)
+			.setDesc(description)
+			.addText((text) => {
+				text.setPlaceholder("Mod+Shift+K");
+				text.setValue(pendingValue);
+				text.onChange((value) => {
+					pendingValue = value;
+				});
+
+				const commitChange = async () => {
+					const parsed = this.plugin.parseHotkeyInput(pendingValue);
+					if (!parsed) {
+						new Notice(
+							"Dinox: Hotkey format invalid. Use modifiers joined with '+', ending with a key."
+						);
+						pendingValue = this.plugin.getHotkeyDisplay(commandKey);
+						text.setValue(pendingValue);
+						return;
+					}
+
+					const changed = await this.plugin.applyHotkeySetting(
+						commandKey,
+						parsed
+					);
+					const formatted = this.plugin.getHotkeyDisplay(commandKey);
+					text.setValue(formatted);
+					pendingValue = formatted;
+					if (changed) {
+						new Notice(
+							formatted
+								? `Dinox: Hotkey set to ${formatted}`
+								: "Dinox: Hotkey cleared."
+						);
+					}
+				};
+
+				text.inputEl.addEventListener("blur", () => {
+					void commitChange();
+				});
+				text.inputEl.addEventListener("keydown", (event) => {
+					if (event.key === "Enter") {
+						event.preventDefault();
+						void commitChange();
+					}
+				});
+			});
+
+		setting.settingEl.classList.add("dinox-hotkey-setting");
 	}
 }
