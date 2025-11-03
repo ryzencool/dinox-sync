@@ -9,8 +9,9 @@ import {
     MarkdownView,
     Menu,
     MenuItem,
-    TFile, // Added
-    TFolder, // Added
+    normalizePath,
+    TFile,
+    TFolder,
 } from "obsidian";
 // import 'bigint-polyfill'; // Removed, likely unnecessary
 
@@ -102,52 +103,6 @@ function getErrorMessage(error: unknown): string {
     }
 }
 
-// --- Helper Functions ---
-
-function objectToYamlString(obj: Record<string, any>): string {
-	let yaml = "";
-	for (const key in obj) {
-		if (Object.prototype.hasOwnProperty.call(obj, key)) {
-			const value = obj[key];
-			// Basic handling for different types - extend if needed
-			if (typeof value === "string") {
-				// Quote strings if they contain special chars or look like numbers/booleans
-				if (
-					/[#:!@%&*{}[\]]/.test(value) ||
-					/^\d+(\.\d+)?$/.test(value) ||
-					/^(true|false|null)$/i.test(value) ||
-					value.includes("\n")
-				) {
-					yaml += `${key}: "${value.replace(/"/g, '\\"')}"\n`; // Simple quoting
-				} else {
-					yaml += `${key}: ${value}\n`;
-				}
-			} else if (
-				typeof value === "number" ||
-				typeof value === "boolean"
-			) {
-				yaml += `${key}: ${value}\n`;
-			} else if (value === null || value === undefined) {
-				yaml += `${key}:\n`; // Or use 'null' based on YAML spec preference
-			} else if (Array.isArray(value)) {
-				yaml += `${key}:\n`;
-				value.forEach((item) => {
-					// Basic array item handling
-					if (typeof item === "string") {
-						yaml += `  - "${item.replace(/"/g, '\\"')}"\n`;
-					} else {
-						yaml += `  - ${item}\n`;
-					}
-				});
-			} else if (typeof value === "object") {
-				// Basic object handling (no nested objects in this simple version)
-				yaml += `${key}: ${JSON.stringify(value)}\n`; // Fallback to JSON string
-			}
-		}
-	}
-	return yaml;
-}
-
 // Original formatDate function
 function formatDate(date: Date): string {
 	const year = date.getFullYear();
@@ -174,24 +129,21 @@ function sanitizeFilename(name: string): string {
 export default class DinoPlugin extends Plugin {
 	settings: DinoPluginSettings;
 	statusBarItemEl: HTMLElement;
-	isSyncing: boolean = false; // Prevent concurrent syncs
+	isSyncing = false; // Prevent concurrent syncs
 
 	async onload() {
-		console.log("Loading Dinox Sync plugin");
 		await this.loadSettings(); // Loads settings like token, dir etc.
 
 		// Status Bar
 		this.statusBarItemEl = this.addStatusBarItem();
 		this.statusBarItemEl.setText("Dinox");
-		this.statusBarItemEl.onClickEvent(() => {
-			if (!this.isSyncing) {
-				this.syncNotes().catch((err) => {
-					console.error("Dinox: Manual sync failed:", err);
-					new Notice(`Dinox: Sync failed - ${getErrorMessage(err)}`);
-				});
-			} else {
+		this.statusBarItemEl.setAttribute("aria-label", "Dinox Sync status");
+		this.registerDomEvent(this.statusBarItemEl, "click", async () => {
+			if (this.isSyncing) {
 				new Notice("Dinox: Sync already in progress.");
+				return;
 			}
+			await this.syncNotes();
 		});
 
 		// Settings Tab
@@ -229,12 +181,6 @@ export default class DinoPlugin extends Plugin {
 		this.addCommand({
 			id: "dinox-sync-note-to-local-command",
 			name: "Sync dinox note to local",
-			hotkeys: [
-				{
-					modifiers: ["Mod", "Shift"],
-					key: "t",
-				},
-			],
 			callback: async () => {
 				if (!this.isSyncing) {
 					try {
@@ -253,12 +199,6 @@ export default class DinoPlugin extends Plugin {
 		this.addCommand({
 			id: "dinox-sync-current-note-command",
 			name: "Sync current note to Dinox",
-			hotkeys: [
-				{
-					modifiers: ["Mod", "Shift"],
-					key: "k",
-				},
-			],
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (activeView && activeView.file) {
@@ -275,12 +215,6 @@ export default class DinoPlugin extends Plugin {
 		this.addCommand({
 			id: "dinox-create-note-command",
 			name: "Create current note into Dinox",
-			hotkeys: [
-				{
-					modifiers: ["Mod", "Shift"],
-					key: "c",
-				},
-			],
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (activeView && activeView.file) {
@@ -369,9 +303,7 @@ export default class DinoPlugin extends Plugin {
 		}
 	}
 
-	onunload() {
-		console.log("Unloading Dinox Sync plugin");
-	}
+	onunload() {}
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -418,8 +350,6 @@ export default class DinoPlugin extends Plugin {
 		const pData = (await this.loadData()) || {}; // Load existing data, including lastSyncTime
 
 		try {
-			console.log("Dinox: Sync started.");
-
 			// 1. Get last sync time from saved data (original logic)
 			let lastSyncTime = "1900-01-01 00:00:00";
 			if (pData.lastSyncTime && pData.lastSyncTime !== "") {
@@ -435,13 +365,13 @@ export default class DinoPlugin extends Plugin {
 					lastSyncTime = "1900-01-01 00:00:00";
 				}
 			}
-			console.log("Dinox: Last sync time for API:", lastSyncTime);
-
 			// 2. Fetch data from API (using original request structure)
 			const dayNotes = await this.fetchNotesFromApi(lastSyncTime);
 
 			// 3. Ensure base sync directory exists
-			await this.ensureFolderExists(this.settings.dir);
+			await this.ensureFolderExists(
+				this.settings.dir || DEFAULT_SETTINGS.dir
+			);
 
 			// 4. Process API response (using delete + create)
 			const processingResults = await this.processApiResponse(dayNotes);
@@ -450,14 +380,11 @@ export default class DinoPlugin extends Plugin {
 
 			// 5. Update last sync time *only on success* (original logic)
 			const newLastSyncTime = formatDate(syncStartTime);
-			console.log("Dinox: Saving new lastSyncTime:", newLastSyncTime);
 			await this.saveData({
 				...pData, // Preserve existing saved data
 				...this.settings, // Save current settings too
 				lastSyncTime: newLastSyncTime, // Update the timestamp
 			});
-
-			console.log("Dinox: Sync finished successfully.");
 			notice.setMessage(
 				`Dinox: Sync complete!\nProcessed: ${processedCount}, Deleted: ${deletedCount}`
 			);
@@ -515,9 +442,6 @@ export default class DinoPlugin extends Plugin {
 				);
 			}
 
-			console.log(
-				`Dinox: Received ${result.data?.length || 0} days of notes.`
-			);
 			return result.data || [];
 		} catch (error) {
 			console.error("Dinox: Error fetching from API:", error);
@@ -530,13 +454,16 @@ export default class DinoPlugin extends Plugin {
 	): Promise<{ processed: number; deleted: number }> {
 		let processed = 0;
 		let deleted = 0;
+		const baseDir = normalizePath(
+			this.settings.dir?.trim() || DEFAULT_SETTINGS.dir
+		);
 
 		for (const dayData of dayNotes.reverse()) {
-			let datePath = this.settings.dir; // Default for flat layout
+			let datePath = baseDir; // Default for flat layout
 			if (this.settings.fileLayout === "nested") {
 				// Ensure date format is path-safe (YYYY-MM-DD is usually safe)
 				const safeDate = dayData.date.replace(/[^0-9-]/g, ""); // Basic sanitization
-				datePath = `${this.settings.dir}/${safeDate}`;
+				datePath = normalizePath(`${baseDir}/${safeDate}`);
 				await this.ensureFolderExists(datePath);
 			}
 
@@ -610,7 +537,7 @@ export default class DinoPlugin extends Plugin {
 		baseFilename =
 			baseFilename || sourceId.replace(/-/g, "_") || "Untitled";
 		const filename = `${baseFilename}.md`; // Append suffix
-		const notePath = `${datePath}/${filename}`;
+		const notePath = normalizePath(`${datePath}/${filename}`);
 
 		// --- Handle Deletion or Upsert (Delete + Create) ---
 		const existingFile = this.app.vault.getAbstractFileByPath(notePath);
@@ -659,11 +586,8 @@ export default class DinoPlugin extends Plugin {
 
 		if (noteData.isDel) {
 			if (existingFile && existingFile instanceof TFile) {
-				console.log(
-					`Dinox: Deleting note marked for deletion: ${notePath}`
-				);
 				try {
-					await this.app.vault.delete(existingFile, true); // Force delete like original
+					await this.app.fileManager.trashFile(existingFile);
 					return "deleted";
 				} catch (deleteError) {
 					console.error(
@@ -673,8 +597,7 @@ export default class DinoPlugin extends Plugin {
 					throw deleteError; // Propagate error
 				}
 			} else {
-				// Note marked deleted, but not found locally. Log and skip.
-				// console.log(`Dinox: Note ${sourceId} marked deleted, but file not found at ${notePath}. Skipping.`);
+				// Note marked deleted, but not found locally. Skip.
 				return "skipped";
 			}
 		} else {
@@ -684,9 +607,6 @@ export default class DinoPlugin extends Plugin {
 				const cache = this.app.metadataCache.getFileCache(existingFile);
 				const frontmatter = cache?.frontmatter;
 				if (frontmatter && frontmatter[ignoreKey] === true) {
-					console.info(
-						`Dinox: Skipping update for note ${notePath} due to '${ignoreKey}: true' property.`
-					);
 					return "skipped"; // Skip update/delete+create for this file
 				}
 			}
@@ -698,44 +618,35 @@ export default class DinoPlugin extends Plugin {
 				throw new Error(`Path conflict: ${notePath} is not a file.`);
 			}
 
-			let finalContent = noteData.content || "";
-			const preservedYamlString = Object.keys(propertiesToPreserve).length > 0
-                ? objectToYamlString(propertiesToPreserve)
-                : "";
-
-			if (preservedYamlString) {
-                // Strategy: Inject preserved properties into the content received from API.
-                // Assumes API content might or might not have frontmatter.
-                if (finalContent.startsWith('---')) {
-                     // Find the end of the first line (after '---')
-                     const firstNewline = finalContent.indexOf('\n');
-                     if (firstNewline !== -1) {
-                         // Inject preserved YAML after the first line
-                         finalContent = finalContent.substring(0, firstNewline + 1)
-                                       + preservedYamlString
-                                       + finalContent.substring(firstNewline + 1);
-                     } else {
-                         // Malformed frontmatter? Just prepend.
-                         console.warn(`Dinox: Existing frontmatter in API content for ${notePath} seems malformed. Prepending preserved properties.`);
-                         finalContent = "---\n" + preservedYamlString + "---\n" + finalContent;
-                     }
-                } else {
-                    // No frontmatter in API content, prepend the preserved properties block
-                    finalContent = "---\n" + preservedYamlString + "---\n" + finalContent;
-                }
-            }
-
+			const finalContent = noteData.content || "";
 
 			try {
+				let targetFile: TFile;
 				if (existingFile && existingFile instanceof TFile) {
-					// Update existing file instead of deleting and recreating
-					console.log(`Dinox: Updating existing note: ${notePath}`);
-					await this.app.vault.modify(existingFile, finalContent);
+					targetFile = existingFile;
+					await this.app.vault.modify(targetFile, finalContent);
 				} else {
-					// Create new file
-					console.log(`Dinox: Creating new note: ${notePath}`);
-					await this.app.vault.create(notePath, finalContent);
+					targetFile = await this.app.vault.create(notePath, finalContent);
 				}
+
+				if (Object.keys(propertiesToPreserve).length > 0) {
+					try {
+						await this.app.fileManager.processFrontMatter(
+							targetFile,
+							(frontmatter) => {
+								for (const key of Object.keys(propertiesToPreserve)) {
+									frontmatter[key] = propertiesToPreserve[key];
+								}
+							}
+						);
+					} catch (frontmatterError) {
+						console.warn(
+							`Dinox: Failed to reapply preserved properties for ${notePath}`,
+							frontmatterError
+						);
+					}
+				}
+
 				return "processed";
 			} catch (error) {
 				console.error(
@@ -748,20 +659,29 @@ export default class DinoPlugin extends Plugin {
 	}
 
 	async ensureFolderExists(folderPath: string): Promise<void> {
-		// Keep robust folder checking
+		const normalizedPath = normalizePath(folderPath);
 		try {
-			const folder = this.app.vault.getAbstractFileByPath(folderPath);
-			if (!folder) {
-				console.log(`Dinox: Creating folder: ${folderPath}`);
-				await this.app.vault.createFolder(folderPath);
-			} else if (!(folder instanceof TFolder)) {
-				throw new Error(
-					`Sync path "${folderPath}" exists but is not a folder.`
-				);
+			const abstractFile =
+				this.app.vault.getAbstractFileByPath(normalizedPath);
+			if (abstractFile) {
+				if (!(abstractFile instanceof TFolder)) {
+					throw new Error(
+						`Sync path "${normalizedPath}" exists but is not a folder.`
+					);
+				}
+				return;
 			}
+
+			await this.app.vault.createFolder(normalizedPath);
 		} catch (error) {
+			if (
+				error instanceof Error &&
+				/error\s+exists/i.test(error.message)
+			) {
+				return;
+			}
 			console.error(
-				`Dinox: Error ensuring folder "${folderPath}" exists:`,
+				`Dinox: Error ensuring folder "${normalizedPath}" exists:`,
 				error
 			);
 			throw error;
@@ -910,28 +830,12 @@ export default class DinoPlugin extends Plugin {
 
 	async addNoteIdToFrontmatter(file: TFile, noteId: string) {
 		try {
-			const fileContent = await this.app.vault.cachedRead(file);
-			const fileCache = this.app.metadataCache.getFileCache(file);
-			
-			let newContent: string;
-			
-			if (fileCache?.frontmatterPosition) {
-				// File already has frontmatter, add noteId to it
-				const beforeFrontmatter = fileContent.substring(0, fileCache.frontmatterPosition.start.offset);
-				const frontmatterContent = fileContent.substring(
-					fileCache.frontmatterPosition.start.offset + 3, // Skip first '---'
-					fileCache.frontmatterPosition.end.offset - 3 // Skip last '---'
-				).trim();
-				const afterFrontmatter = fileContent.substring(fileCache.frontmatterPosition.end.offset);
-				
-				newContent = beforeFrontmatter + "---\n" + frontmatterContent + "\nnoteId: " + noteId + "\n---" + afterFrontmatter;
-			} else {
-				// File has no frontmatter, create new one with noteId
-				newContent = "---\nnoteId: " + noteId + "\n---\n" + fileContent;
-			}
-			
-			await this.app.vault.modify(file, newContent);
-			console.log(`Dinox: Added noteId ${noteId} to ${file.path}`);
+			await this.app.fileManager.processFrontMatter(
+				file,
+				(frontmatter) => {
+					frontmatter.noteId = noteId;
+				}
+			);
 		} catch (error) {
 			console.error("Dinox: Error adding noteId to frontmatter:", error);
 			new Notice(`Dinox: Error updating frontmatter - ${error.message}`);
