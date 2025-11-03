@@ -1,16 +1,16 @@
 import {
-	App,
-	Notice,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-	requestUrl,
-	Editor,
-	MarkdownView,
-	Menu,
-	MenuItem,
-	TFile, // Added
-	TFolder, // Added
+    App,
+    Notice,
+    Plugin,
+    PluginSettingTab,
+    Setting,
+    requestUrl,
+    Editor,
+    MarkdownView,
+    Menu,
+    MenuItem,
+    TFile, // Added
+    TFolder, // Added
 } from "obsidian";
 // import 'bigint-polyfill'; // Removed, likely unnecessary
 
@@ -89,6 +89,18 @@ const DEFAULT_SETTINGS: DinoPluginSettings = {
 
 const API_BASE_URL = "https://dinoai.chatgo.pro";
 const API_BASE_URL_AI = "https://aisdk.chatgo.pro";
+
+// Ensure safe error message extraction without assuming Error type
+function getErrorMessage(error: unknown): string {
+    if (error instanceof Error && typeof error.message === "string") {
+        return error.message;
+    }
+    try {
+        return JSON.stringify(error);
+    } catch {
+        return String(error);
+    }
+}
 
 // --- Helper Functions ---
 
@@ -173,9 +185,10 @@ export default class DinoPlugin extends Plugin {
 		this.statusBarItemEl.setText("Dinox");
 		this.statusBarItemEl.onClickEvent(() => {
 			if (!this.isSyncing) {
-				this.syncNotes().catch((err) =>
-					console.error("Dinox: Manual sync failed:", err)
-				);
+				this.syncNotes().catch((err) => {
+					console.error("Dinox: Manual sync failed:", err);
+					new Notice(`Dinox: Sync failed - ${getErrorMessage(err)}`);
+				});
 			} else {
 				new Notice("Dinox: Sync already in progress.");
 			}
@@ -228,7 +241,7 @@ export default class DinoPlugin extends Plugin {
 						await this.syncNotes();
 					} catch (error) {
 						console.error("Dinox: Sync failed:", error);
-						new Notice(`Dinox: Sync failed - ${error.message}`);
+						new Notice(`Dinox: Sync failed - ${getErrorMessage(error)}`);
 					}
 				} else {
 					new Notice("Dinox: Sync already in progress.");
@@ -346,13 +359,10 @@ export default class DinoPlugin extends Plugin {
 		if (this.settings.isAutoSync) {
 			this.registerInterval(
 				window.setInterval(async () => {
-					console.log("Dinox: Triggering auto sync...");
 					if (!this.isSyncing) {
 						await this.syncNotes();
 					} else {
-						console.log(
-							"Dinox: Auto sync skipped, sync already in progress."
-						);
+						// Skip when a sync is already running
 					}
 				}, 30 * 60 * 1000)
 			);
@@ -454,7 +464,7 @@ export default class DinoPlugin extends Plugin {
 		} catch (error) {
 			errorOccurred = true;
 			console.error("Dinox: Sync failed:", error);
-			notice.setMessage(`Dinox: Sync failed!\n${error.message}`);
+			notice.setMessage(`Dinox: Sync failed!\n${getErrorMessage(error)}`);
 			// Do NOT update lastSyncTime on error
 		} finally {
 			this.isSyncing = false;
@@ -472,7 +482,7 @@ export default class DinoPlugin extends Plugin {
 			lastSyncTime: lastSyncTime,
 		});
 
-		console.log("Dinox: Calling API with body:", requestBody);
+		// Avoid logging request body/token to protect user privacy
 
 		try {
 			const resp = await requestUrl({
@@ -606,7 +616,7 @@ export default class DinoPlugin extends Plugin {
 		const existingFile = this.app.vault.getAbstractFileByPath(notePath);
 		let propertiesToPreserve: Record<string, any> = {}; // Store properties here
 
-		console.log("111111111111111111", keysToPreserve)
+		// Debug logging removed
 
 
 
@@ -617,17 +627,13 @@ export default class DinoPlugin extends Plugin {
 			try {
 				const cache = this.app.metadataCache.getFileCache(existingFile);
 				const existingFrontmatter = cache?.frontmatter;
-				console.log("当前存在的 frontmatter", existingFrontmatter)
+				// Debug logging removed
 				if (existingFrontmatter) {
-
-					console.log("ignoreKey", ignoreKey, existingFrontmatter[ignoreKey])
-                    if (ignoreKey && existingFrontmatter[ignoreKey] == true) {
-						console.log("ignoreKey", ignoreKey, existingFrontmatter[ignoreKey])
-						return "skipped"
-                    }
+					if (ignoreKey && existingFrontmatter[ignoreKey] === true) {
+						return "skipped";
+					}
 
 					if (keysToPreserve.length > 0) {
-					console.log("222222", keysToPreserve, existingFrontmatter)
 					keysToPreserve.forEach((key) => {
 						if (
 							Object.prototype.hasOwnProperty.call(
@@ -639,12 +645,7 @@ export default class DinoPlugin extends Plugin {
 								existingFrontmatter[key];
 						}
 					});
-					if (Object.keys(propertiesToPreserve).length > 0) {
-						console.log(
-							`Dinox: Preserving properties for ${notePath}:`,
-							Object.keys(propertiesToPreserve)
-						);
-					}
+						// Intentionally avoid noisy logs here
 				}
 				}
 			} catch (e) {
@@ -698,13 +699,11 @@ export default class DinoPlugin extends Plugin {
 			}
 
 			let finalContent = noteData.content || "";
-            const preservedYamlString = Object.keys(propertiesToPreserve).length > 0
+			const preservedYamlString = Object.keys(propertiesToPreserve).length > 0
                 ? objectToYamlString(propertiesToPreserve)
                 : "";
 
-
-				console.log("4444", preservedYamlString)
-            if (preservedYamlString) {
+			if (preservedYamlString) {
                 // Strategy: Inject preserved properties into the content received from API.
                 // Assumes API content might or might not have frontmatter.
                 if (finalContent.startsWith('---')) {
@@ -715,7 +714,6 @@ export default class DinoPlugin extends Plugin {
                          finalContent = finalContent.substring(0, firstNewline + 1)
                                        + preservedYamlString
                                        + finalContent.substring(firstNewline + 1);
-                         console.log(`Dinox: Injected preserved properties into existing frontmatter for ${notePath}`);
                      } else {
                          // Malformed frontmatter? Just prepend.
                          console.warn(`Dinox: Existing frontmatter in API content for ${notePath} seems malformed. Prepending preserved properties.`);
@@ -724,12 +722,9 @@ export default class DinoPlugin extends Plugin {
                 } else {
                     // No frontmatter in API content, prepend the preserved properties block
                     finalContent = "---\n" + preservedYamlString + "---\n" + finalContent;
-                     console.log(`Dinox: Prepended preserved properties to ${notePath}`);
                 }
             }
 
-
-			console.log("77777", finalContent)
 
 			try {
 				if (existingFile && existingFile instanceof TFile) {
@@ -812,7 +807,7 @@ export default class DinoPlugin extends Plugin {
 			}
 		} catch (error) {
 			console.error("Dinox: Error sending content:", error);
-			new Notice(`Dinox: Error sending - ${error.message}`);
+			new Notice(`Dinox: Error sending - ${getErrorMessage(error)}`);
 		}
 	}
 
@@ -883,18 +878,17 @@ export default class DinoPlugin extends Plugin {
 		}
 	}
 	
-	extractAllTags(fileContent: string, frontmatter: any): string[] {
+	extractAllTags(fileContent: string, frontmatter?: Record<string, unknown>): string[] {
 		const tags = new Set<string>();
 		
 		// 1. Get tags from frontmatter
-		if (frontmatter?.tags) {
-			if (Array.isArray(frontmatter.tags)) {
-				frontmatter.tags.forEach((tag: string) => {
+		const fmTagsUnknown = frontmatter ? (frontmatter as Record<string, unknown>)["tags"] : undefined;
+		if (Array.isArray(fmTagsUnknown)) {
+			fmTagsUnknown.forEach((tag) => {
 					if (tag && typeof tag === 'string') {
 						tags.add(tag.trim());
 					}
 				});
-			}
 		}
 		
 		// 2. Extract hashtags from content using regex
@@ -983,7 +977,6 @@ export default class DinoPlugin extends Plugin {
 				tags: allTags,
 				title: title,
 			});
-			console.log("requestBody", this.settings.token, requestBody)
 			const resp = await requestUrl({
 				url: `${API_BASE_URL_AI}/api/openapi/updateNote`, // Verify endpoint
 				method: "POST",
@@ -1011,7 +1004,7 @@ export default class DinoPlugin extends Plugin {
 			}
 		} catch (error) {
 			console.error("Dinox: Error syncing note:", error);
-			new Notice(`Dinox: Error syncing note - ${error.message}`);
+			new Notice(`Dinox: Error syncing note - ${getErrorMessage(error)}`);
 		}
 	}
 }
