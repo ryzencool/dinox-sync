@@ -1,11 +1,10 @@
 {
-  "id": "dinox-sync",
-  "name": "Dinox Sync",
-  "version": "1.0.23",
-  "minAppVersion": "0.15.0",
-  "description": "Synchronize Dinox notes",
-  "author": "Shanks",
-  "authorUrl": "https://github.com/ryzencool",
-  "isDesktopOnly": false
+	"id": "dinox-sync",
+	"name": "Dinox Sync",
+	"version": "1.0.24",
+	"minAppVersion": "0.15.0",
+	"description": "Synchronize Dinox notes",
+	"author": "Shanks",
+	"authorUrl": "https://github.com/ryzencool",
+	"isDesktopOnly": false
 }
-
