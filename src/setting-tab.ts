@@ -284,9 +284,22 @@ export class DinoSettingTab extends PluginSettingTab {
 		);
 
 		containerEl.createEl("h3", { text: t("settings.section.advanced") });
+		let selectedPreset = "start";
 		new Setting(containerEl)
 			.setName(t("settings.advanced.reset.name"))
 			.setDesc(t("settings.advanced.reset.desc"))
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("yesterday", "昨天")
+					.addOption("threeDays", "三天前")
+					.addOption("oneWeek", "一周前")
+					.addOption("oneMonth", "一月前")
+					.addOption("start", "起始时间")
+					.setValue("start")
+					.onChange((value) => {
+						selectedPreset = value;
+					});
+			})
 			.addButton((button) =>
 				button
 					.setButtonText(t("settings.advanced.resetButton"))
@@ -296,10 +309,40 @@ export class DinoSettingTab extends PluginSettingTab {
 							t("settings.advanced.confirm")
 						);
 						if (confirmed) {
+							const pad = (n: number) => n.toString().padStart(2, "0");
+							const format = (d: Date) =>
+								`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+							const now = new Date();
+							let targetTime = "1900-01-01 00:00:00";
+							switch (selectedPreset) {
+								case "yesterday": {
+									const d = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+									targetTime = format(d);
+									break;
+								}
+								case "threeDays": {
+									const d = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+									targetTime = format(d);
+									break;
+								}
+								case "oneWeek": {
+									const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+									targetTime = format(d);
+									break;
+								}
+								case "oneMonth": {
+									const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+									targetTime = format(d);
+									break;
+								}
+								case "start":
+								default:
+									targetTime = "1900-01-01 00:00:00";
+							}
 							const data = (await this.plugin.loadData()) || {};
 							await this.plugin.saveData({
 								...data,
-								lastSyncTime: "1900-01-01 00:00:00",
+								lastSyncTime: targetTime,
 							});
 							new Notice(this.plugin.t("notice.resetDone"));
 						}

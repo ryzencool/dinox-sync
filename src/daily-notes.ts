@@ -29,8 +29,8 @@ interface ManagedEntryRecord {
 	preview?: string;
 }
 
-const MANAGED_BLOCK_START = "<!-- DINOX-SYNC:START -->";
-const MANAGED_BLOCK_END = "<!-- DINOX-SYNC:END -->";
+const MANAGED_BLOCK_START = "<!-- Dinox -->";
+const MANAGED_BLOCK_END = "<!-- Dinox -->";
 
 export class DailyNotesUnavailableError extends Error {
 	constructor() {
