@@ -57,6 +57,8 @@ export class DinoSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h3", { text: t("settings.filenameHeading") });
 
+		const filenameControls: Array<{ setDisabled(disabled: boolean): void }> = [];
+
 		new Setting(containerEl)
 			.setName(t("settings.filename.name"))
 			.setDesc(t("settings.filename.desc"))
@@ -65,11 +67,30 @@ export class DinoSettingTab extends PluginSettingTab {
 					.addOption("noteId", t("settings.filename.optionId"))
 					.addOption("title", t("settings.filename.optionTitle"))
 					.addOption("time", t("settings.filename.optionTime"))
+					.addOption("titleDate", t("settings.filename.optionTitleDate"))
+					.addOption("template", t("settings.filename.optionTemplate"))
 					.setValue(this.plugin.settings.filenameFormat)
-					.onChange(async (value: "noteId" | "title" | "time") => {
+					.onChange(async (value: "noteId" | "title" | "time" | "titleDate" | "template") => {
 						this.plugin.settings.filenameFormat = value;
 						await this.plugin.saveSettings();
+						const enableTemplate = value === "template";
+						filenameControls.forEach((c) => c.setDisabled(!enableTemplate));
 					});
+			});
+
+		new Setting(containerEl)
+			.setName(t("settings.filename.template.name"))
+			.setDesc(t("settings.filename.template.desc"))
+			.addText((text) => {
+				text
+					.setPlaceholder(t("settings.filename.template.placeholder"))
+					.setValue(this.plugin.settings.filenameTemplate)
+					.setDisabled(this.plugin.settings.filenameFormat !== "template")
+					.onChange(async (value) => {
+						this.plugin.settings.filenameTemplate = value;
+						await this.plugin.saveSettings();
+					});
+				filenameControls.push(text);
 			});
 
 		new Setting(containerEl)

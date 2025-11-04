@@ -42,6 +42,7 @@ export const DEFAULT_SETTINGS: DinoPluginSettings = {
 	dir: "Dinox Sync",
 	template: DEFAULT_TEMPLATE_TEXT,
 	filenameFormat: "noteId",
+	filenameTemplate: "{{title}} ({{createDate}})",
 	fileLayout: "nested",
 	ignoreSyncKey: "ignore_sync",
 	preserveKeys: "",

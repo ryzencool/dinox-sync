@@ -45,7 +45,8 @@ export interface DinoPluginSettings {
 	isAutoSync: boolean;
 	dir: string;
 	template: string;
-	filenameFormat: "noteId" | "title" | "time";
+	filenameFormat: "noteId" | "title" | "time" | "titleDate" | "template";
+	filenameTemplate: string;
 	fileLayout: "flat" | "nested";
 	ignoreSyncKey: string;
 	preserveKeys: string;

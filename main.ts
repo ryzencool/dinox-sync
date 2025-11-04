@@ -919,6 +919,61 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				);
 				baseFilename = sourceId.replace(/-/g, "_");
 			}
+		} else if (format === "titleDate") {
+			// Title + CreateTime (YYYY-MM-DD)
+			try {
+				const hasTitle = noteData.title && noteData.title.trim() !== "";
+				const titlePart = hasTitle
+					? sanitizeFilename(noteData.title)
+					: sourceId.replace(/-/g, "_");
+				const createDate = new Date(noteData.createTime);
+				const year = createDate.getFullYear();
+				const month = String(createDate.getMonth() + 1).padStart(2, "0");
+				const day = String(createDate.getDate()).padStart(2, "0");
+				const dateOnly = `${year}-${month}-${day}`;
+				// Compose then sanitize to normalize spaces and risky chars
+				baseFilename = sanitizeFilename(`${titlePart} (${dateOnly})`);
+			} catch (e) {
+				console.warn(
+					`Dinox: Invalid createTime "${noteData.createTime}" for filename (titleDate), note ${sourceId}. Falling back to title or noteId.`
+				);
+				if (noteData.title && noteData.title.trim() !== "") {
+					baseFilename = sanitizeFilename(noteData.title);
+				} else {
+					baseFilename = sourceId.replace(/-/g, "_");
+				}
+			}
+		} else if (format === "template") {
+			// Custom template rendering
+			try {
+				const createDateObj = new Date(noteData.createTime);
+				const year = createDateObj.getFullYear();
+				const month = String(createDateObj.getMonth() + 1).padStart(2, "0");
+				const day = String(createDateObj.getDate()).padStart(2, "0");
+				const hours = String(createDateObj.getHours()).padStart(2, "0");
+				const minutes = String(createDateObj.getMinutes()).padStart(2, "0");
+				const seconds = String(createDateObj.getSeconds()).padStart(2, "0");
+				const dateOnly = `${year}-${month}-${day}`;
+				const timeShort = `${hours}${minutes}${seconds}`;
+				const titlePart = noteData.title && noteData.title.trim() !== ""
+					? noteData.title
+					: noteData.noteId.replace(/-/g, "_");
+				const template = this.settings.filenameTemplate || "{{title}} ({{createDate}})";
+				let rendered = template
+					.replace(/\{\{\s*title\s*\}\}/g, titlePart)
+					.replace(/\{\{\s*createDate\s*\}\}/g, dateOnly)
+					.replace(/\{\{\s*createTime\s*\}\}/g, timeShort)
+					.replace(/\{\{\s*noteId\s*\}\}/g, noteData.noteId);
+				// Fallback to noteId if empty after rendering
+				rendered = rendered && rendered.trim() !== "" ? rendered : noteData.noteId;
+				baseFilename = sanitizeFilename(rendered);
+			} catch (e) {
+				console.warn(
+					`Dinox: Failed to render filename template for note ${sourceId}. Falling back to noteId.`,
+					e
+				);
+				baseFilename = sourceId.replace(/-/g, "_");
+			}
 		} else {
 			baseFilename = sourceId.replace(/-/g, "_"); // Default fallback
 		}
