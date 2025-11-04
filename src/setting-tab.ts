@@ -159,6 +159,110 @@ export class DinoSettingTab extends PluginSettingTab {
 					})
 			);
 
+		containerEl.createEl("h3", { text: t("settings.section.dailyNotes") });
+		const dailyNotesControls: Array<{ setDisabled(disabled: boolean): void }> =
+			[];
+		const updateDailyNotesControls = (enabled: boolean) => {
+			dailyNotesControls.forEach((control) =>
+				control.setDisabled(!enabled)
+			);
+		};
+
+		new Setting(containerEl)
+			.setName(t("settings.dailyNotes.enable.name"))
+			.setDesc(t("settings.dailyNotes.enable.desc"))
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.dailyNotes.enabled)
+					.onChange(async (value) => {
+						this.plugin.settings.dailyNotes.enabled = value;
+						updateDailyNotesControls(value);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName(t("settings.dailyNotes.heading.name"))
+			.setDesc(t("settings.dailyNotes.heading.desc"))
+			.addText((text) => {
+				text
+					.setPlaceholder("## Dinox Notes")
+					.setValue(this.plugin.settings.dailyNotes.heading)
+					.setDisabled(!this.plugin.settings.dailyNotes.enabled)
+					.onChange(async (value) => {
+						this.plugin.settings.dailyNotes.heading = value.trim();
+						await this.plugin.saveSettings();
+					});
+				dailyNotesControls.push(text);
+			});
+
+		new Setting(containerEl)
+			.setName(t("settings.dailyNotes.position.name"))
+			.setDesc(t("settings.dailyNotes.position.desc"))
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("top", t("settings.dailyNotes.position.top"))
+					.addOption("bottom", t("settings.dailyNotes.position.bottom"))
+					.setValue(this.plugin.settings.dailyNotes.insertTo)
+					.setDisabled(!this.plugin.settings.dailyNotes.enabled)
+					.onChange(async (value: "top" | "bottom") => {
+						this.plugin.settings.dailyNotes.insertTo = value;
+						await this.plugin.saveSettings();
+					});
+				dailyNotesControls.push(dropdown);
+			});
+
+		new Setting(containerEl)
+			.setName(t("settings.dailyNotes.linkStyle.name"))
+			.setDesc(t("settings.dailyNotes.linkStyle.desc"))
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption(
+						"wikilink",
+						t("settings.dailyNotes.linkStyle.wikilink")
+					)
+					.addOption(
+						"embed",
+						t("settings.dailyNotes.linkStyle.embed")
+					)
+					.setValue(this.plugin.settings.dailyNotes.linkStyle)
+					.setDisabled(!this.plugin.settings.dailyNotes.enabled)
+					.onChange(async (value: "wikilink" | "embed") => {
+						this.plugin.settings.dailyNotes.linkStyle = value;
+						await this.plugin.saveSettings();
+					});
+				dailyNotesControls.push(dropdown);
+			});
+
+		new Setting(containerEl)
+			.setName(t("settings.dailyNotes.preview.name"))
+			.setDesc(t("settings.dailyNotes.preview.desc"))
+			.addToggle((toggle) => {
+				toggle
+					.setValue(this.plugin.settings.dailyNotes.includePreview)
+					.setDisabled(!this.plugin.settings.dailyNotes.enabled)
+					.onChange(async (value) => {
+						this.plugin.settings.dailyNotes.includePreview = value;
+						await this.plugin.saveSettings();
+					});
+				dailyNotesControls.push(toggle);
+			});
+
+		new Setting(containerEl)
+			.setName(t("settings.dailyNotes.create.name"))
+			.setDesc(t("settings.dailyNotes.create.desc"))
+			.addToggle((toggle) => {
+				toggle
+					.setValue(this.plugin.settings.dailyNotes.createIfMissing)
+					.setDisabled(!this.plugin.settings.dailyNotes.enabled)
+					.onChange(async (value) => {
+						this.plugin.settings.dailyNotes.createIfMissing = value;
+						await this.plugin.saveSettings();
+					});
+				dailyNotesControls.push(toggle);
+			});
+		updateDailyNotesControls(this.plugin.settings.dailyNotes.enabled);
+
 		containerEl.createEl("h3", { text: t("settings.section.hotkeys") });
 		this.addHotkeySetting(
 			containerEl,

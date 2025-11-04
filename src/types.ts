@@ -31,6 +31,15 @@ export interface DinoHotkeySetting {
 
 export type DinoHotkeyMap = Record<DinoCommandKey, DinoHotkeySetting>;
 
+export interface DailyNotesSettings {
+	enabled: boolean;
+	heading: string;
+	insertTo: "top" | "bottom";
+	createIfMissing: boolean;
+	linkStyle: "wikilink" | "embed";
+	includePreview: boolean;
+}
+
 export interface DinoPluginSettings {
 	token: string;
 	isAutoSync: boolean;
@@ -41,4 +50,5 @@ export interface DinoPluginSettings {
 	ignoreSyncKey: string;
 	preserveKeys: string;
 	commandHotkeys: DinoHotkeyMap;
+	dailyNotes: DailyNotesSettings;
 }

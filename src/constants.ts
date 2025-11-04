@@ -1,4 +1,4 @@
-import type { DinoPluginSettings } from "./types";
+import type { DailyNotesSettings, DinoPluginSettings } from "./types";
 import { createDefaultHotkeys } from "./hotkeys";
 
 export const DEFAULT_TEMPLATE_TEXT = `---
@@ -27,6 +27,15 @@ updateTime: {{updateTime}}
 export const API_BASE_URL = "https://dinoai.chatgo.pro";
 export const API_BASE_URL_AI = "https://aisdk.chatgo.pro";
 
+export const DEFAULT_DAILY_NOTES_SETTINGS: DailyNotesSettings = {
+	enabled: false,
+	heading: "## Dinox Notes",
+	insertTo: "bottom",
+	createIfMissing: true,
+	linkStyle: "wikilink",
+	includePreview: false,
+};
+
 export const DEFAULT_SETTINGS: DinoPluginSettings = {
 	token: "",
 	isAutoSync: false,
@@ -37,4 +46,5 @@ export const DEFAULT_SETTINGS: DinoPluginSettings = {
 	ignoreSyncKey: "ignore_sync",
 	preserveKeys: "",
 	commandHotkeys: createDefaultHotkeys(),
+	dailyNotes: DEFAULT_DAILY_NOTES_SETTINGS,
 };

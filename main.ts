@@ -26,9 +26,15 @@ import {
 } from "./i18n";
 import {
 	DEFAULT_SETTINGS,
+	DEFAULT_DAILY_NOTES_SETTINGS,
 	API_BASE_URL,
 	API_BASE_URL_AI,
 } from "./src/constants";
+import {
+	DailyNotesBridge,
+	DailyNotesUnavailableError,
+	type DailyNoteChangeSet,
+} from "./src/daily-notes";
 import {
 	sanitizeHotkeySetting,
 	cloneHotkeyMap,
@@ -52,6 +58,21 @@ import type {
 } from "./src/types";
 import { DinoSettingTab } from "./src/setting-tab";
 
+type NoteProcessingResult =
+	| {
+			status: "processed";
+			notePath: string;
+			title: string;
+			preview?: string;
+	  }
+	| {
+			status: "deleted";
+			notePath: string;
+	  }
+	| {
+			status: "skipped";
+	  };
+
 // --- Plugin Class ---
 export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 	settings: DinoPluginSettings;
@@ -71,6 +92,8 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		  }
 		| null = null;
 	private autoSyncIntervalId: number | null = null;
+	private dailyNotesBridge: DailyNotesBridge | null = null;
+	private hasWarnedDailyNotesUnavailable = false;
 
 	public refreshLocale(): void {
 		this.currentLocale = getCurrentLocale(this.app);
@@ -384,6 +407,10 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 	async onload() {
 		await this.loadSettings(); // Loads settings like token, dir etc.
 		this.refreshLocale();
+		this.dailyNotesBridge = new DailyNotesBridge(
+			this.app,
+			(path) => this.ensureFolderExists(path)
+		);
 
 		// Status Bar
 		this.statusBarItemEl = this.addStatusBarItem();
@@ -489,6 +516,42 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 			},
 		});
 
+		this.addCommand({
+			id: "dinox-open-daily-notes",
+			name: this.t("command.openDailyNote"),
+			callback: async () => {
+				if (!this.settings.dailyNotes.enabled) {
+					new Notice(this.t("notice.dailyNotesDisabled"));
+					return;
+				}
+				if (!this.dailyNotesBridge) {
+					new Notice(this.t("notice.dailyNotesPluginDisabled"));
+					return;
+				}
+				try {
+					const file = await this.dailyNotesBridge.openDailyNote(
+						new Date(),
+						this.settings.dailyNotes
+					);
+					if (!file) {
+						new Notice(this.t("notice.dailyNotesMissingFile"));
+						return;
+					}
+					await this.app.workspace.openLinkText(file.path, "", true);
+				} catch (error) {
+					if (error instanceof DailyNotesUnavailableError) {
+						if (!this.hasWarnedDailyNotesUnavailable) {
+							new Notice(this.t("notice.dailyNotesPluginDisabled"));
+							this.hasWarnedDailyNotesUnavailable = true;
+						}
+					} else {
+						console.error("Dinox: Failed to open daily note:", error);
+						new Notice(this.t("notice.dailyNoteOpenFailed"));
+					}
+				}
+			},
+		});
+
 		this.applyAllCommandHotkeys();
 		this.refreshAutoSyncSchedule();
 
@@ -561,6 +624,10 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 			...DEFAULT_SETTINGS,
 			...stored,
 			commandHotkeys: cloneHotkeyMap(stored?.commandHotkeys),
+			dailyNotes: {
+				...DEFAULT_DAILY_NOTES_SETTINGS,
+				...stored?.dailyNotes,
+			},
 		};
 		// Ensure ignoreSyncKey has a default if loading old data without it
 		if (!this.settings.ignoreSyncKey) {
@@ -714,12 +781,22 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		const baseDir = normalizePath(
 			this.settings.dir?.trim() || DEFAULT_SETTINGS.dir
 		);
+		const shouldSyncDailyNotes =
+			this.settings.dailyNotes.enabled && !!this.dailyNotesBridge;
+		const dailyNoteChanges = new Map<string, DailyNoteChangeSet>();
+		const ensureChangeSet = (date: string): DailyNoteChangeSet => {
+			let changeSet = dailyNoteChanges.get(date);
+			if (!changeSet) {
+				changeSet = { added: [], removed: [] };
+				dailyNoteChanges.set(date, changeSet);
+			}
+			return changeSet;
+		};
 
 		for (const dayData of dayNotes.reverse()) {
 			let datePath = baseDir; // Default for flat layout
 			if (this.settings.fileLayout === "nested") {
-				// Ensure date format is path-safe (YYYY-MM-DD is usually safe)
-				const safeDate = dayData.date.replace(/[^0-9-]/g, ""); // Basic sanitization
+				const safeDate = dayData.date.replace(/[^0-9-]/g, "");
 				datePath = normalizePath(`${baseDir}/${safeDate}`);
 				await this.ensureFolderExists(datePath);
 			}
@@ -730,28 +807,91 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 						noteData,
 						datePath
 					);
-					if (result === "deleted") deleted++;
-					else if (result === "processed") processed++;
+					if (result.status === "deleted") {
+						deleted++;
+						if (shouldSyncDailyNotes && result.notePath) {
+							const changeSet = ensureChangeSet(dayData.date);
+							changeSet.removed.push({
+								notePath: result.notePath,
+								title: noteData.title,
+							});
+						}
+					} else if (result.status === "processed") {
+						processed++;
+						if (shouldSyncDailyNotes) {
+							const changeSet = ensureChangeSet(dayData.date);
+							changeSet.added.push({
+								notePath: result.notePath,
+								title: result.title,
+								preview: result.preview,
+							});
+						}
+					}
 				} catch (noteError) {
 					console.error(
 						`Dinox: Failed to process note ${noteData.noteId}:`,
 						noteError
 					);
 					const shortId = noteData.noteId.substring(0, 8);
-					new Notice(this.t("notice.processNoteFailed", { noteId: shortId }), 5000);
-					// Decide whether to stop sync or continue processing other notes
-					// throw noteError; // Uncomment to stop entire sync on one note failure
+					new Notice(
+						this.t("notice.processNoteFailed", { noteId: shortId }),
+						5000
+					);
 				}
 			}
 		}
+
+		if (shouldSyncDailyNotes && dailyNoteChanges.size > 0) {
+			let updatedDailyNotes = 0;
+			for (const [date, changeSet] of dailyNoteChanges) {
+				try {
+					const changed =
+						await this.dailyNotesBridge!.applyChangesForDate(
+							date,
+							changeSet,
+							this.settings.dailyNotes
+						);
+					if (changed) {
+						updatedDailyNotes++;
+					}
+				} catch (error) {
+					if (error instanceof DailyNotesUnavailableError) {
+						if (!this.hasWarnedDailyNotesUnavailable) {
+							new Notice(
+								this.t("notice.dailyNotesPluginDisabled")
+							);
+							this.hasWarnedDailyNotesUnavailable = true;
+						}
+					} else {
+						console.error(
+							`Dinox: Failed to update daily note for ${date}:`,
+							error
+						);
+						new Notice(
+							this.t("notice.dailyNotesUpdateFailed"),
+							5000
+						);
+					}
+				}
+			}
+			if (updatedDailyNotes > 0) {
+				new Notice(
+					this.t("notice.dailyNotesUpdated", {
+						count: updatedDailyNotes,
+					})
+				);
+			}
+		}
+
 		return { processed, deleted };
 	}
+
 
 	// Combined handling function mirroring original logic
 	async handleNoteProcessing(
 		noteData: Note,
 		datePath: string
-	): Promise<"processed" | "deleted" | "skipped"> {
+	): Promise<NoteProcessingResult> {
 		const sourceId = noteData.noteId;
 		const ignoreKey = this.settings.ignoreSyncKey; // Get the configured key name
 		const preserveKeysSetting = this.settings.preserveKeys || "";
@@ -759,10 +899,8 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 			.split(",")
 			.map((k) => k.trim())
 			.filter((k) => k !== "");
-		// --- Generate Filename (original logic + sanitization) ---
 		let baseFilename = "";
 		const format = this.settings.filenameFormat;
-
 		if (format === "noteId") {
 			baseFilename = sourceId.replace(/-/g, "_");
 		} else if (format === "title") {
@@ -774,7 +912,6 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		} else if (format === "time") {
 			try {
 				const createDate = new Date(noteData.createTime);
-				// Use original formatDate for filename consistency if desired, but sanitize
 				baseFilename = sanitizeFilename(formatDate(createDate));
 			} catch (e) {
 				console.warn(
@@ -785,47 +922,34 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		} else {
 			baseFilename = sourceId.replace(/-/g, "_"); // Default fallback
 		}
-		// Ensure filename is not empty
 		baseFilename =
 			baseFilename || sourceId.replace(/-/g, "_") || "Untitled";
 		const filename = `${baseFilename}.md`; // Append suffix
 		const notePath = normalizePath(`${datePath}/${filename}`);
-
-		// --- Handle Deletion or Upsert (Delete + Create) ---
 		const existingFile = this.app.vault.getAbstractFileByPath(notePath);
 		let propertiesToPreserve: Record<string, any> = {}; // Store properties here
-
-		// Debug logging removed
-
-
-
-		if (
-			existingFile &&
-			existingFile instanceof TFile 
-		) {
+		if (existingFile && existingFile instanceof TFile) {
 			try {
 				const cache = this.app.metadataCache.getFileCache(existingFile);
 				const existingFrontmatter = cache?.frontmatter;
-				// Debug logging removed
 				if (existingFrontmatter) {
 					if (ignoreKey && existingFrontmatter[ignoreKey] === true) {
-						return "skipped";
+						return { status: "skipped" };
 					}
 
 					if (keysToPreserve.length > 0) {
-					keysToPreserve.forEach((key) => {
-						if (
-							Object.prototype.hasOwnProperty.call(
-								existingFrontmatter,
-								key
-							)
-						) {
-							propertiesToPreserve[key] =
-								existingFrontmatter[key];
-						}
-					});
-						// Intentionally avoid noisy logs here
-				}
+						keysToPreserve.forEach((key) => {
+							if (
+								Object.prototype.hasOwnProperty.call(
+									existingFrontmatter,
+									key
+								)
+							) {
+								propertiesToPreserve[key] =
+									existingFrontmatter[key];
+							}
+						});
+					}
 				}
 			} catch (e) {
 				console.warn(
@@ -835,12 +959,11 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				propertiesToPreserve = {}; // Reset on error
 			}
 		}
-
 		if (noteData.isDel) {
 			if (existingFile && existingFile instanceof TFile) {
 				try {
 					await this.app.fileManager.trashFile(existingFile);
-					return "deleted";
+					return { status: "deleted", notePath };
 				} catch (deleteError) {
 					console.error(
 						`Dinox: Failed to delete file ${notePath}:`,
@@ -848,66 +971,111 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 					);
 					throw deleteError; // Propagate error
 				}
-			} else {
-				// Note marked deleted, but not found locally. Skip.
-				return "skipped";
 			}
-		} else {
-			// *** Check for Ignore Flag ***
-
-			if (existingFile && existingFile instanceof TFile && ignoreKey) {
-				const cache = this.app.metadataCache.getFileCache(existingFile);
-				const frontmatter = cache?.frontmatter;
-				if (frontmatter && frontmatter[ignoreKey] === true) {
-					return "skipped"; // Skip update/delete+create for this file
-				}
-			}
-			// Check for file path conflict (e.g., folder with same name)
-			if (existingFile && !(existingFile instanceof TFile)) {
-				console.error(
-					`Dinox: Path ${notePath} exists but is not a file. Cannot create/update note.`
-				);
-				throw new Error(`Path conflict: ${notePath} is not a file.`);
-			}
-
-			const finalContent = noteData.content || "";
-
-			try {
-				let targetFile: TFile;
-				if (existingFile && existingFile instanceof TFile) {
-					targetFile = existingFile;
-					await this.app.vault.modify(targetFile, finalContent);
-				} else {
-					targetFile = await this.app.vault.create(notePath, finalContent);
-				}
-
-				if (Object.keys(propertiesToPreserve).length > 0) {
-					try {
-						await this.app.fileManager.processFrontMatter(
-							targetFile,
-							(frontmatter) => {
-								for (const key of Object.keys(propertiesToPreserve)) {
-									frontmatter[key] = propertiesToPreserve[key];
-								}
-							}
-						);
-					} catch (frontmatterError) {
-						console.warn(
-							`Dinox: Failed to reapply preserved properties for ${notePath}`,
-							frontmatterError
-						);
-					}
-				}
-
-				return "processed";
-			} catch (error) {
-				console.error(
-					`Dinox: Failed to ${existingFile ? "update" : "create"} file ${notePath}:`,
-					error
-				);
-				throw error; // Propagate error
+			return { status: "skipped" };
+		}
+		if (existingFile && existingFile instanceof TFile && ignoreKey) {
+			const cache = this.app.metadataCache.getFileCache(existingFile);
+			const frontmatter = cache?.frontmatter;
+			if (frontmatter && frontmatter[ignoreKey] === true) {
+				return { status: "skipped" }; // Skip update/delete+create for this file
 			}
 		}
+		if (existingFile && !(existingFile instanceof TFile)) {
+			console.error(
+				`Dinox: Path ${notePath} exists but is not a file. Cannot create/update note.`
+			);
+			throw new Error(`Path conflict: ${notePath} is not a file.`);
+		}
+
+		const finalContent = noteData.content || "";
+
+		try {
+			let targetFile: TFile;
+			if (existingFile && existingFile instanceof TFile) {
+				targetFile = existingFile;
+				await this.app.vault.modify(targetFile, finalContent);
+			} else {
+				targetFile = await this.app.vault.create(notePath, finalContent);
+			}
+
+			if (Object.keys(propertiesToPreserve).length > 0) {
+				try {
+					await this.app.fileManager.processFrontMatter(
+						targetFile,
+						(frontmatter) => {
+							for (const key of Object.keys(propertiesToPreserve)) {
+								frontmatter[key] = propertiesToPreserve[key];
+							}
+						}
+					);
+				} catch (frontmatterError) {
+					console.warn(
+						`Dinox: Failed to reapply preserved properties for ${notePath}`,
+						frontmatterError
+					);
+				}
+			}
+
+			return {
+				status: "processed",
+				notePath,
+				title: this.getDailyNoteEntryTitle(noteData, baseFilename),
+				preview: this.buildDailyNotePreview(finalContent),
+			};
+		} catch (error) {
+			console.error(
+				`Dinox: Failed to ${existingFile ? "update" : "create"} file ${notePath}:`,
+				error
+			);
+			throw error; // Propagate error
+		}
+	}
+
+	private getDailyNoteEntryTitle(
+		noteData: Note,
+		baseFilename: string
+	): string {
+		const rawTitle = noteData.title?.trim();
+		if (rawTitle) {
+			return rawTitle;
+		}
+		return baseFilename.replace(/_/g, " ");
+	}
+
+	private buildDailyNotePreview(content: string): string | undefined {
+		const raw = content ?? "";
+		if (!raw) {
+			return undefined;
+		}
+		const lines = raw.split(/\r?\n/);
+		let index = 0;
+		if (lines[index]?.trim() === "---") {
+			index++;
+			while (index < lines.length && lines[index].trim() !== "---") {
+				index++;
+			}
+			if (index < lines.length) {
+				index++;
+			}
+		}
+		for (; index < lines.length; index++) {
+			const line = lines[index].trim();
+			if (!line) {
+				continue;
+			}
+			if (line.startsWith(">")) {
+				continue;
+			}
+			const cleaned = line.replace(/^#+\s*/, "").replace(/[`*_]/g, "");
+			if (!cleaned) {
+				continue;
+			}
+			return cleaned.length > 120
+				? `${cleaned.slice(0, 117)}...`
+				: cleaned;
+		}
+		return undefined;
 	}
 
 	async ensureFolderExists(folderPath: string): Promise<void> {
