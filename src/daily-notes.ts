@@ -29,6 +29,19 @@ interface ManagedEntryRecord {
 	preview?: string;
 }
 
+interface InternalPluginsApi {
+	getPluginById?: (id: string) => unknown;
+}
+
+interface AppWithInternalPlugins {
+	internalPlugins?: InternalPluginsApi;
+}
+
+interface DailyNotesCorePlugin {
+	enabled: boolean;
+	instance?: { options?: Partial<CoreDailyNotesOptions> };
+}
+
 const MANAGED_BLOCK_START = "<!-- Dinox -->";
 const MANAGED_BLOCK_END = "<!-- Dinox -->";
 
@@ -110,15 +123,15 @@ export class DailyNotesBridge {
 	}
 
 	private getCoreOptions(): CoreDailyNotesOptions | null {
-		const dailyNotesPlugin =
-			(this.app as any)?.internalPlugins?.getPluginById?.(
-				"daily-notes"
-			);
+		const internalPlugins = (this.app as unknown as AppWithInternalPlugins)
+			.internalPlugins;
+		const dailyNotesPlugin = internalPlugins?.getPluginById?.(
+			"daily-notes"
+		) as DailyNotesCorePlugin | undefined;
 		if (!dailyNotesPlugin || !dailyNotesPlugin.enabled) {
 			return null;
 		}
-		const instance = dailyNotesPlugin.instance;
-		const options = instance?.options;
+		const options = dailyNotesPlugin.instance?.options;
 		if (!options) {
 			return null;
 		}

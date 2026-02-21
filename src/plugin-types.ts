@@ -12,6 +12,7 @@ export interface DinoPluginAPI extends Plugin {
 	settings: DinoPluginSettings;
 	defaults: Readonly<DinoPluginSettings>;
 	saveSettings(): Promise<void>;
+	setLastSyncTime(lastSyncTime: string): Promise<void>;
 	cancelHotkeyCapture(restoreLabel: boolean): void;
 	refreshLocale(): void;
 	refreshAutoSyncSchedule(): void;

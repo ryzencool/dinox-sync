@@ -5,7 +5,8 @@ import {
 	Setting,
 	ButtonComponent,
 } from "obsidian";
-import { DEFAULT_TEMPLATE_TEXT } from "./constants";
+import { DEFAULT_LAST_SYNC_TIME, DEFAULT_TEMPLATE_TEXT } from "./constants";
+import { sanitizeRelativeFolderSubpath } from "./type-folders";
 import type { DinoCommandKey, DinoHotkeySetting } from "./types";
 import type { DinoPluginAPI } from "./plugin-types";
 
@@ -106,6 +107,107 @@ export class DinoSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 			});
+
+		containerEl.createEl("h3", { text: t("settings.section.typeFolders") });
+
+		const typeFolderControls: Array<{ setDisabled(disabled: boolean): void }> =
+			[];
+		const updateTypeFolderControls = (enabled: boolean) => {
+			typeFolderControls.forEach((control) =>
+				control.setDisabled(!enabled)
+			);
+		};
+
+		new Setting(containerEl)
+			.setName(t("settings.typeFolders.enable.name"))
+			.setDesc(t("settings.typeFolders.enable.desc"))
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.typeFolders.enabled)
+					.onChange(async (value) => {
+						this.plugin.settings.typeFolders.enabled = value;
+						updateTypeFolderControls(value);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName(t("settings.typeFolders.note.name"))
+			.setDesc(t("settings.typeFolders.note.desc"))
+			.addText((text) => {
+				text
+					.setPlaceholder(this.plugin.defaults.typeFolders.note)
+					.setValue(this.plugin.settings.typeFolders.note)
+					.setDisabled(!this.plugin.settings.typeFolders.enabled)
+					.onChange(async (value) => {
+						const sanitized =
+							sanitizeRelativeFolderSubpath(value) ??
+							this.plugin.defaults.typeFolders.note;
+						const other =
+							sanitizeRelativeFolderSubpath(
+								this.plugin.settings.typeFolders.material
+							) ?? this.plugin.defaults.typeFolders.material;
+
+						if (sanitized === other) {
+							new Notice(t("notice.typeFoldersSame"));
+							text.setValue(this.plugin.settings.typeFolders.note);
+							return;
+						}
+
+						if (
+							value.trim() !== "" &&
+							sanitizeRelativeFolderSubpath(value) === null
+						) {
+							new Notice(t("notice.typeFoldersInvalidReverted"));
+						}
+
+						this.plugin.settings.typeFolders.note = sanitized;
+						await this.plugin.saveSettings();
+						text.setValue(this.plugin.settings.typeFolders.note);
+					});
+				typeFolderControls.push(text);
+			});
+
+		new Setting(containerEl)
+			.setName(t("settings.typeFolders.material.name"))
+			.setDesc(t("settings.typeFolders.material.desc"))
+			.addText((text) => {
+				text
+					.setPlaceholder(this.plugin.defaults.typeFolders.material)
+					.setValue(this.plugin.settings.typeFolders.material)
+					.setDisabled(!this.plugin.settings.typeFolders.enabled)
+					.onChange(async (value) => {
+						const sanitized =
+							sanitizeRelativeFolderSubpath(value) ??
+							this.plugin.defaults.typeFolders.material;
+						const other =
+							sanitizeRelativeFolderSubpath(
+								this.plugin.settings.typeFolders.note
+							) ?? this.plugin.defaults.typeFolders.note;
+
+						if (sanitized === other) {
+							new Notice(t("notice.typeFoldersSame"));
+							text.setValue(
+								this.plugin.settings.typeFolders.material
+							);
+							return;
+						}
+
+						if (
+							value.trim() !== "" &&
+							sanitizeRelativeFolderSubpath(value) === null
+						) {
+							new Notice(t("notice.typeFoldersInvalidReverted"));
+						}
+
+						this.plugin.settings.typeFolders.material = sanitized;
+						await this.plugin.saveSettings();
+						text.setValue(this.plugin.settings.typeFolders.material);
+					});
+				typeFolderControls.push(text);
+			});
+
+		updateTypeFolderControls(this.plugin.settings.typeFolders.enabled);
 
 		new Setting(containerEl)
 			.setName(t("settings.ignoreKey.name"))
@@ -334,7 +436,7 @@ export class DinoSettingTab extends PluginSettingTab {
 							const format = (d: Date) =>
 								`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 							const now = new Date();
-							let targetTime = "1900-01-01 00:00:00";
+							let targetTime = DEFAULT_LAST_SYNC_TIME;
 							switch (selectedPreset) {
 								case "yesterday": {
 									const d = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
@@ -358,13 +460,9 @@ export class DinoSettingTab extends PluginSettingTab {
 								}
 								case "start":
 								default:
-									targetTime = "1900-01-01 00:00:00";
+									targetTime = DEFAULT_LAST_SYNC_TIME;
 							}
-							const data = (await this.plugin.loadData()) || {};
-							await this.plugin.saveData({
-								...data,
-								lastSyncTime: targetTime,
-							});
+							await this.plugin.setLastSyncTime(targetTime);
 							new Notice(this.plugin.t("notice.resetDone"));
 						}
 					})
@@ -402,13 +500,10 @@ export class DinoSettingTab extends PluginSettingTab {
 			updateDisplay();
 			if (changed) {
 				const labelText = this.plugin.getHotkeyDisplay(commandKey);
-				new Notice(
-					labelText
-						? this.plugin.t("notice.hotkeySet", {
-								hotkey: labelText,
-						  })
-						: this.plugin.t("notice.hotkeyCleared")
-				);
+				const message = labelText
+					? this.plugin.t("notice.hotkeySet", { hotkey: labelText })
+					: this.plugin.t("notice.hotkeyCleared");
+				new Notice(message);
 			}
 		};
 

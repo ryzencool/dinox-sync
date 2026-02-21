@@ -1,12 +1,29 @@
-/*
+/* Dinox Sync plugin styles */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.status-bar-item.is-syncing {
+	opacity: 0.85;
+}
 
-If your plugin does not need CSS, delete this file.
+.dino-sync-template-setting {
+	width: 100%;
+	font-family: var(--font-monospace);
+}
 
-*/
-.setting-template {
-    width: 300px;
-    height: 200px;
+.dinox-hotkey-setting .setting-item-control {
+	align-items: center;
+	gap: 8px;
+}
+
+.dinox-hotkey-display {
+	min-width: 140px;
+	padding: 2px 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+	font-family: var(--font-monospace);
+}
+
+.dinox-hotkey-actions {
+	display: flex;
+	gap: 6px;
 }

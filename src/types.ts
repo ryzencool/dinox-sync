@@ -5,6 +5,7 @@ export interface Note {
 	createTime: string;
 	content: string;
 	noteId: string;
+	type?: string;
 	tags?: string[];
 	isDel: boolean;
 	isAudio?: boolean;
@@ -40,10 +41,17 @@ export interface DailyNotesSettings {
 	includePreview: boolean;
 }
 
+export interface TypeFoldersSettings {
+	enabled: boolean;
+	note: string;
+	material: string;
+}
+
 export interface DinoPluginSettings {
 	token: string;
 	isAutoSync: boolean;
 	dir: string;
+	typeFolders: TypeFoldersSettings;
 	template: string;
 	filenameFormat: "noteId" | "title" | "time" | "titleDate" | "template";
 	filenameTemplate: string;
