@@ -185,4 +185,3 @@ export function extractAllTagsFromMarkdown(markdown: string): string[] {
 
 	return Array.from(set);
 }
-

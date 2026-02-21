@@ -15,6 +15,7 @@ import {
 	extractFrontmatterScalar,
 	splitFrontmatter,
 } from "./markdown";
+import { stripQueryParamsFromImageUrls } from "./markdown-images";
 import {
 	categorizeDinoxType,
 	resolveCategoryBaseDir,
@@ -324,7 +325,7 @@ async function handleNoteProcessing(args: {
 		return { status: "skipped" };
 	}
 
-	const finalContent = noteData.content || "";
+	const finalContent = stripQueryParamsFromImageUrls(noteData.content || "").content;
 
 	let targetFile: TFile;
 	let finalPath = desiredPath;
