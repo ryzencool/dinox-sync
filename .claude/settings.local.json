@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.obsidian.md)",
+      "WebSearch",
+      "mcp__ide__getDiagnostics",
+      "Bash(npm run build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(chmod:*)"
+    ]
+  }
+}
