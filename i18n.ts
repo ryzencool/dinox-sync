@@ -129,6 +129,11 @@ const en = {
 	"settings.advanced.reset.desc": "Clears the last sync time so the next run fetches all notes.",
 	"settings.advanced.resetButton": "Reset sync time",
 	"settings.advanced.confirm": "Reset the Dinox last sync time? The next sync will fetch all notes.",
+	"settings.advanced.preset.yesterday": "Yesterday",
+	"settings.advanced.preset.threeDays": "3 days ago",
+	"settings.advanced.preset.oneWeek": "1 week ago",
+	"settings.advanced.preset.oneMonth": "1 month ago",
+	"settings.advanced.preset.start": "Beginning of time",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -262,7 +267,12 @@ const zhCN = createTranslation({
 	"settings.advanced.reset.name": "重置同步状态",
 	"settings.advanced.reset.desc": "清除上次同步时间，下次将重新获取所有笔记。",
 	"settings.advanced.resetButton": "重置同步时间",
-	"settings.advanced.confirm": "确定要重置 Dinox 上次同步时间吗？下次将全量获取。"
+	"settings.advanced.confirm": "确定要重置 Dinox 上次同步时间吗？下次将全量获取。",
+	"settings.advanced.preset.yesterday": "昨天",
+	"settings.advanced.preset.threeDays": "三天前",
+	"settings.advanced.preset.oneWeek": "一周前",
+	"settings.advanced.preset.oneMonth": "一月前",
+	"settings.advanced.preset.start": "起始时间",
 });
 
 const zhTW = createTranslation({
@@ -390,7 +400,12 @@ const zhTW = createTranslation({
 	"settings.advanced.reset.name": "重設同步狀態",
 	"settings.advanced.reset.desc": "清除上次同步時間，下次將重新擷取所有筆記。",
 	"settings.advanced.resetButton": "重設同步時間",
-	"settings.advanced.confirm": "確定要重設 Dinox 上次同步時間嗎？下次將全量擷取。"
+	"settings.advanced.confirm": "確定要重設 Dinox 上次同步時間嗎？下次將全量擷取。",
+	"settings.advanced.preset.yesterday": "昨天",
+	"settings.advanced.preset.threeDays": "三天前",
+	"settings.advanced.preset.oneWeek": "一週前",
+	"settings.advanced.preset.oneMonth": "一個月前",
+	"settings.advanced.preset.start": "起始時間",
 });
 
 const ja = createTranslation({
@@ -518,7 +533,12 @@ const ja = createTranslation({
 	"settings.advanced.reset.name": "同期状態をリセット",
 	"settings.advanced.reset.desc": "最終同期時刻を削除し、次回にノートを再取得します。",
 	"settings.advanced.resetButton": "同期時間をリセット",
-	"settings.advanced.confirm": "Dinox の最終同期時間をリセットしますか？次回は全件取得されます。"
+	"settings.advanced.confirm": "Dinox の最終同期時間をリセットしますか？次回は全件取得されます。",
+	"settings.advanced.preset.yesterday": "昨日",
+	"settings.advanced.preset.threeDays": "3日前",
+	"settings.advanced.preset.oneWeek": "1週間前",
+	"settings.advanced.preset.oneMonth": "1か月前",
+	"settings.advanced.preset.start": "最初から",
 });
 
 const ko = createTranslation({
@@ -646,7 +666,12 @@ const ko = createTranslation({
 	"settings.advanced.reset.name": "동기화 상태 초기화",
 	"settings.advanced.reset.desc": "마지막 동기화 시간을 지워 다음에 모든 노트를 다시 가져옵니다.",
 	"settings.advanced.resetButton": "동기화 시간 초기화",
-	"settings.advanced.confirm": "Dinox 마지막 동기화 시간을 초기화할까요? 다음 동기화에서 전체를 가져옵니다."
+	"settings.advanced.confirm": "Dinox 마지막 동기화 시간을 초기화할까요? 다음 동기화에서 전체를 가져옵니다.",
+	"settings.advanced.preset.yesterday": "어제",
+	"settings.advanced.preset.threeDays": "3일 전",
+	"settings.advanced.preset.oneWeek": "1주일 전",
+	"settings.advanced.preset.oneMonth": "1개월 전",
+	"settings.advanced.preset.start": "처음부터",
 });
 
 const translations: Record<LocaleCode, TranslationRecord> = {

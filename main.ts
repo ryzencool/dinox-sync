@@ -413,7 +413,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 
 		// Commands
 		this.commandRefs.syncAll = this.addCommand({
-			id: "dinox-sync-command",
+			id: "sync-all",
 			name: this.t("command.syncAll"),
 			hotkeys: this.getHotkeysForCommand("syncAll"),
 			callback: async () => {
@@ -426,7 +426,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		});
 
 		this.addCommand({
-			id: "dinox-reset-sync-command",
+			id: "reset-sync",
 			name: this.t("command.resetSync"),
 			callback: async () => {
 				await this.setLastSyncTime(DEFAULT_LAST_SYNC_TIME);
@@ -435,7 +435,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		});
 
 		this.addCommand({
-			id: "dinox-sync-note-to-local-command",
+			id: "sync-to-local",
 			name: this.t("command.syncToLocal"),
 			callback: async () => {
 				if (!this.isSyncing) {
@@ -457,7 +457,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 
 		// Add command for syncToDinox with keyboard shortcut
 		this.commandRefs.syncCurrentNote = this.addCommand({
-			id: "dinox-sync-current-note-command",
+			id: "sync-current-note",
 			name: this.t("command.syncCurrentNote"),
 			hotkeys: this.getHotkeysForCommand("syncCurrentNote"),
 			checkCallback: (checking: boolean) => {
@@ -474,7 +474,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 
 		// Add command for createNoteToDinox with keyboard shortcut
 		this.commandRefs.createNote = this.addCommand({
-			id: "dinox-create-note-command",
+			id: "create-note",
 			name: this.t("command.createNote"),
 			hotkeys: this.getHotkeysForCommand("createNote"),
 			checkCallback: (checking: boolean) => {
@@ -500,7 +500,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		});
 
 		this.addCommand({
-			id: "dinox-open-daily-notes",
+			id: "open-daily-note",
 			name: this.t("command.openDailyNote"),
 			callback: async () => {
 				if (!this.settings.dailyNotes.enabled) {

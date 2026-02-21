@@ -1,43 +1,38 @@
-Dinox Sync Plugin
+# Dinox Sync Plugin
 
-Introduction
+Synchronize notes between [Dinox](https://dinoai.chatgo.pro) and your Obsidian vault.
 
-The Dinox Sync Plugin is a powerful tool that allows you to sync your Dinox notes to your local Obsidian vault. With simple setup and an easy-to-use interface, you can effortlessly manage and sync your notes.
+## Features
 
-Features
+- **Sync Dinox Notes to Obsidian**: Enter the token provided by Dinox to enable note synchronization.
+- **Automatic Sync**: Set up automatic syncing to pull Dinox notes every 30 minutes.
+- **Manual Sync**: Click the Dinox icon in the status bar to manually pull the latest notes.
+- **Push Notes to Dinox**: Sync individual notes or selected text back to Dinox.
+- **Daily Notes Integration**: Optionally link synced notes into your daily notes.
+- **Type-based Folders**: Separate notes and materials into different folders.
+- **Customizable Filenames**: Choose from multiple filename formats or define your own template.
 
-	•	Sync Dinox Notes to Obsidian: Enter the token provided by Dinox to enable note synchronization.
-	•	Automatic Sync: Set up automatic syncing to pull Dinox notes every hour.
-	•	Manual Sync: If you opt out of automatic syncing, you can manually pull the latest notes by clicking the Dinox icon in the status bar.
-	•	Easy Management: Centralize all your notes in Obsidian, keeping your content consistent.
+## Usage
 
-How to Use
+1. Install the plugin from Obsidian Community Plugins.
+2. Enable the plugin in Settings > Community plugins.
+3. In the plugin settings, enter the token provided by Dinox.
+4. Choose your preferred sync method:
+   - **Automatic**: Enable auto sync in settings to pull notes periodically.
+   - **Manual**: Click the Dinox status bar item or use the command palette.
 
-	1.	Install the Plugin:
-	•	In Obsidian, open the Settings.
-	•	Go to “Community plugins” and click “Browse”.
-	•	Search for “Dinox Obsidian Plugin” and click “Install”.
-	2.	Configure the Plugin:
-	•	After installation, click “Enable” to activate the plugin.
-	•	In the plugin settings, enter the token provided by Dinox.
-	3.	Choose Sync Method:
-	•	Automatic Sync: Enable automatic syncing in the plugin settings to pull Dinox notes every hour.
-	•	Manual Sync: If you don’t enable automatic syncing, click the Dinox icon in the Obsidian status bar to manually pull the latest notes.
+## Commands
 
-Notes
+- **Synchronize Dinox notes now** - Pull all new/updated notes from Dinox.
+- **Sync current note to Dinox** - Push the active note to Dinox.
+- **Create current note in Dinox** - Create a new note in Dinox from the active file.
+- **Reset Dinox sync** - Clear the last sync time so the next sync fetches all notes.
+- **Open today's Dinox daily note** - Open or create today's daily note with Dinox links.
 
-	•	Ensure your token is valid and has the necessary permissions.
-	•	The automatic sync feature triggers every hour; make sure your internet connection is stable.
+## Support
 
-Support
+If you encounter any issues or have suggestions, please open an issue on [GitHub](https://github.com/ryzencool/dinox-sync/issues) or email zmyjust@gmail.com.
 
-If you encounter any issues or have suggestions, please contact us via:
+## License
 
-	•	GitHub Issues
-	•	Email: zmyjust@gmail.com
-
-Open Source License
-
-This plugin is licensed under the MIT License.
-
-I hope this README helps! If you need any further adjustments or additional content, feel free to let me know.
+This plugin is licensed under the [MIT License](LICENSE).

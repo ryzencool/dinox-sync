@@ -1,5 +1,6 @@
 import {
 	App,
+	Modal,
 	Notice,
 	PluginSettingTab,
 	Setting,
@@ -9,6 +10,39 @@ import { DEFAULT_LAST_SYNC_TIME, DEFAULT_TEMPLATE_TEXT } from "./constants";
 import { sanitizeRelativeFolderSubpath } from "./type-folders";
 import type { DinoCommandKey, DinoHotkeySetting } from "./types";
 import type { DinoPluginAPI } from "./plugin-types";
+
+class ConfirmModal extends Modal {
+	private readonly message: string;
+	private readonly onConfirm: () => void;
+
+	constructor(app: App, message: string, onConfirm: () => void) {
+		super(app);
+		this.message = message;
+		this.onConfirm = onConfirm;
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.createEl("p", { text: this.message });
+		new Setting(contentEl)
+			.addButton((btn) =>
+				btn
+					.setButtonText("Confirm")
+					.setWarning()
+					.onClick(() => {
+						this.close();
+						this.onConfirm();
+					})
+			)
+			.addButton((btn) =>
+				btn.setButtonText("Cancel").onClick(() => this.close())
+			);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+}
 
 export class DinoSettingTab extends PluginSettingTab {
 	private readonly plugin: DinoPluginAPI;
@@ -31,15 +65,16 @@ export class DinoSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName(t("settings.token.name"))
 			.setDesc(t("settings.token.desc"))
-			.addText((text) =>
+			.addText((text) => {
 				text
 					.setPlaceholder(t("settings.token.placeholder"))
 					.setValue(this.plugin.settings.token)
 					.onChange(async (value) => {
 						this.plugin.settings.token = value.trim();
 						await this.plugin.saveSettings();
-					})
-			);
+					});
+				text.inputEl.type = "password";
+			});
 
 		new Setting(containerEl)
 			.setName(t("settings.dir.name"))
@@ -413,11 +448,11 @@ export class DinoSettingTab extends PluginSettingTab {
 			.setDesc(t("settings.advanced.reset.desc"))
 			.addDropdown((dropdown) => {
 				dropdown
-					.addOption("yesterday", "昨天")
-					.addOption("threeDays", "三天前")
-					.addOption("oneWeek", "一周前")
-					.addOption("oneMonth", "一月前")
-					.addOption("start", "起始时间")
+					.addOption("yesterday", t("settings.advanced.preset.yesterday"))
+					.addOption("threeDays", t("settings.advanced.preset.threeDays"))
+					.addOption("oneWeek", t("settings.advanced.preset.oneWeek"))
+					.addOption("oneMonth", t("settings.advanced.preset.oneMonth"))
+					.addOption("start", t("settings.advanced.preset.start"))
 					.setValue("start")
 					.onChange((value) => {
 						selectedPreset = value;
@@ -427,44 +462,45 @@ export class DinoSettingTab extends PluginSettingTab {
 				button
 					.setButtonText(t("settings.advanced.resetButton"))
 					.setWarning()
-					.onClick(async () => {
-						const confirmed = confirm(
-							t("settings.advanced.confirm")
-						);
-						if (confirmed) {
-							const pad = (n: number) => n.toString().padStart(2, "0");
-							const format = (d: Date) =>
-								`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-							const now = new Date();
-							let targetTime = DEFAULT_LAST_SYNC_TIME;
-							switch (selectedPreset) {
-								case "yesterday": {
-									const d = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
-									targetTime = format(d);
-									break;
-								}
-								case "threeDays": {
-									const d = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-									targetTime = format(d);
-									break;
-								}
-								case "oneWeek": {
-									const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-									targetTime = format(d);
-									break;
-								}
-								case "oneMonth": {
-									const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-									targetTime = format(d);
-									break;
-								}
-								case "start":
-								default:
-									targetTime = DEFAULT_LAST_SYNC_TIME;
+					.onClick(() => {
+						new ConfirmModal(
+							this.app,
+							t("settings.advanced.confirm"),
+							async () => {
+								const pad = (n: number) => n.toString().padStart(2, "0");
+								const format = (d: Date) =>
+									`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+								const now = new Date();
+								let targetTime = DEFAULT_LAST_SYNC_TIME;
+								switch (selectedPreset) {
+									case "yesterday": {
+										const d = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+										targetTime = format(d);
+										break;
+									}
+									case "threeDays": {
+										const d = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+										targetTime = format(d);
+										break;
+									}
+									case "oneWeek": {
+										const d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+										targetTime = format(d);
+										break;
+									}
+									case "oneMonth": {
+										const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+										targetTime = format(d);
+										break;
+									}
+									case "start":
+									default:
+										targetTime = DEFAULT_LAST_SYNC_TIME;
 							}
-							await this.plugin.setLastSyncTime(targetTime);
-							new Notice(this.plugin.t("notice.resetDone"));
-						}
+								await this.plugin.setLastSyncTime(targetTime);
+								new Notice(this.plugin.t("notice.resetDone"));
+							}
+						).open();
 					})
 			);
 	}

@@ -1,9 +1,9 @@
 {
 	"id": "dinox-sync",
 	"name": "Dinox Sync",
-	"version": "1.1.1",
-	"minAppVersion": "0.15.0",
-	"description": "Synchronize Dinox notes",
+	"version": "1.1.2",
+	"minAppVersion": "1.4.0",
+	"description": "Synchronize notes between Dinox and your vault.",
 	"author": "Shanks",
 	"authorUrl": "https://github.com/ryzencool",
 	"isDesktopOnly": false

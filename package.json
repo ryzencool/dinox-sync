@@ -1,7 +1,7 @@
 {
 	"name": "dinox-sync",
-	"version": "1.1.1",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"version": "1.1.2",
+	"description": "Synchronize notes between Dinox and your Obsidian vault.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
