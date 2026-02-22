@@ -20,6 +20,7 @@ import {
 	categorizeDinoxType,
 	resolveCategoryBaseDir,
 } from "./type-folders";
+import { resolveZettelBoxFolderSegment } from "./zettel-box-folders";
 import { ensureFolderExists } from "./vault";
 import {
 	formatDate,
@@ -457,9 +458,22 @@ export async function processApiResponse(args: {
 			// Ensure the category folder exists so nested date folders can be created under it.
 			await ensureFolderOnce(categoryBaseDir);
 
-			const datePath = wantsNestedLayout
-				? normalizePath(`${categoryBaseDir}/${safeDate}`)
+			const zettelBoxFolder = resolveZettelBoxFolderSegment({
+				noteData,
+				enabled: args.settings.zettelBoxFolders.enabled,
+			});
+
+			const noteBaseDir = zettelBoxFolder
+				? normalizePath(`${categoryBaseDir}/${zettelBoxFolder}`)
 				: categoryBaseDir;
+
+			if (noteBaseDir !== categoryBaseDir) {
+				await ensureFolderOnce(noteBaseDir);
+			}
+
+			const datePath = wantsNestedLayout
+				? normalizePath(`${noteBaseDir}/${safeDate}`)
+				: noteBaseDir;
 
 			if (wantsNestedLayout) {
 				await ensureFolderOnce(datePath);

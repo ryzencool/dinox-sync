@@ -2,6 +2,7 @@ import type {
 	DailyNotesSettings,
 	DinoPluginSettings,
 	TypeFoldersSettings,
+	ZettelBoxFoldersSettings,
 } from "./types";
 import { createDefaultHotkeys } from "./hotkeys";
 
@@ -47,11 +48,16 @@ export const DEFAULT_TYPE_FOLDERS_SETTINGS: TypeFoldersSettings = {
 	material: "material",
 };
 
+export const DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS: ZettelBoxFoldersSettings = {
+	enabled: false,
+};
+
 export const DEFAULT_SETTINGS: DinoPluginSettings = {
 	token: "",
 	isAutoSync: false,
 	dir: "Dinox Sync",
 	typeFolders: DEFAULT_TYPE_FOLDERS_SETTINGS,
+	zettelBoxFolders: DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS,
 	template: DEFAULT_TEMPLATE_TEXT,
 	filenameFormat: "noteId",
 	filenameTemplate: "{{title}} ({{createDate}})",

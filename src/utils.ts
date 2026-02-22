@@ -110,3 +110,50 @@ export function sanitizeFilename(name: string): string {
 	if (sanitized === "." || sanitized === "..") return "Untitled";
 	return sanitized || "Untitled";
 }
+
+function isWindowsReservedDeviceName(value: string): boolean {
+	const trimmed = value.trim().replace(/[. ]+$/g, "");
+	if (!trimmed) {
+		return false;
+	}
+	const upper = trimmed.toUpperCase();
+	const base = upper.split(".")[0] ?? upper;
+	if (base === "CON" || base === "PRN" || base === "AUX" || base === "NUL") {
+		return true;
+	}
+	return /^(COM|LPT)[1-9]$/.test(base);
+}
+
+export function sanitizeFolderSegment(value: string): string | null {
+	const raw = value?.trim();
+	if (!raw) {
+		return null;
+	}
+
+	// Keep this a single path segment: replace slashes so "a/b" cannot create nested folders.
+	let sanitized = raw.replace(/[\\/]/g, "-");
+	// Strip control chars + common filesystem-invalid characters (Windows).
+	sanitized = sanitized.replace(/[\u0000-\u001F<>:"|?*]/g, "-");
+	// Collapse whitespace/dashes for a stable, readable folder name.
+	sanitized = sanitized.replace(/\s+/g, " ");
+	sanitized = sanitized.replace(/-+/g, "-");
+	// Trim leading/trailing characters that commonly break folder creation on Windows.
+	sanitized = sanitized.replace(/^[ .-]+|[ .-]+$/g, "");
+	sanitized = sanitized.replace(/[. ]+$/g, "");
+	sanitized = sanitized.trim();
+
+	if (!sanitized || sanitized === "." || sanitized === "..") {
+		return null;
+	}
+
+	sanitized = sanitized.slice(0, 80).trim().replace(/[. ]+$/g, "");
+	if (!sanitized || sanitized === "." || sanitized === "..") {
+		return null;
+	}
+
+	if (isWindowsReservedDeviceName(sanitized)) {
+		sanitized = `${sanitized}-box`;
+	}
+
+	return sanitized;
+}

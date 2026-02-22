@@ -4,6 +4,7 @@ import {
 	DEFAULT_LAST_SYNC_TIME,
 	DEFAULT_SETTINGS,
 	DEFAULT_TYPE_FOLDERS_SETTINGS,
+	DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS,
 } from "./constants";
 import { cloneHotkeyMap } from "./hotkeys";
 import { sanitizeRelativeFolderSubpath } from "./type-folders";
@@ -11,6 +12,7 @@ import type {
 	DailyNotesSettings,
 	DinoPluginSettings,
 	TypeFoldersSettings,
+	ZettelBoxFoldersSettings,
 } from "./types";
 
 export const PERSISTED_SCHEMA_VERSION = 2 as const;
@@ -68,6 +70,18 @@ function normalizeTypeFoldersSettings(value: unknown): TypeFoldersSettings {
 		return { ...DEFAULT_TYPE_FOLDERS_SETTINGS, enabled };
 	}
 	return { enabled, note, material };
+}
+
+function normalizeZettelBoxFoldersSettings(
+	value: unknown
+): ZettelBoxFoldersSettings {
+	const record = isJsonRecord(value) ? value : {};
+	return {
+		enabled:
+			typeof record.enabled === "boolean"
+				? record.enabled
+				: DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS.enabled,
+	};
 }
 
 function normalizeDailyNotesSettings(value: unknown): DailyNotesSettings {
@@ -150,6 +164,9 @@ export function normalizeSettings(
 		dir: dir || defaults.dir,
 		typeFolders: normalizeTypeFoldersSettings(
 			record.typeFolders ?? defaults.typeFolders
+		),
+		zettelBoxFolders: normalizeZettelBoxFoldersSettings(
+			record.zettelBoxFolders ?? defaults.zettelBoxFolders
 		),
 		template:
 			typeof record.template === "string"

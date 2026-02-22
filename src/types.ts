@@ -1,5 +1,10 @@
 import type { Modifier } from "obsidian";
 
+export interface ZettelBoxRef {
+	id?: string;
+	name?: string;
+}
+
 export interface Note {
 	title: string;
 	createTime: string;
@@ -9,7 +14,8 @@ export interface Note {
 	tags?: string[];
 	isDel: boolean;
 	isAudio?: boolean;
-	zettelBoxes?: string[];
+	zettelBoxes?: Array<string | ZettelBoxRef>;
+	zettelboxexes?: ZettelBoxRef[];
 }
 
 export interface DayNote {
@@ -47,11 +53,16 @@ export interface TypeFoldersSettings {
 	material: string;
 }
 
+export interface ZettelBoxFoldersSettings {
+	enabled: boolean;
+}
+
 export interface DinoPluginSettings {
 	token: string;
 	isAutoSync: boolean;
 	dir: string;
 	typeFolders: TypeFoldersSettings;
+	zettelBoxFolders: ZettelBoxFoldersSettings;
 	template: string;
 	filenameFormat: "noteId" | "title" | "time" | "titleDate" | "template";
 	filenameTemplate: string;

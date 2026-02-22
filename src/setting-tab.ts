@@ -244,6 +244,20 @@ export class DinoSettingTab extends PluginSettingTab {
 
 		updateTypeFolderControls(this.plugin.settings.typeFolders.enabled);
 
+		containerEl.createEl("h3", { text: t("settings.section.zettelBoxFolders") });
+
+		new Setting(containerEl)
+			.setName(t("settings.zettelBoxFolders.enable.name"))
+			.setDesc(t("settings.zettelBoxFolders.enable.desc"))
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.zettelBoxFolders.enabled)
+					.onChange(async (value) => {
+						this.plugin.settings.zettelBoxFolders.enabled = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
 		new Setting(containerEl)
 			.setName(t("settings.ignoreKey.name"))
 			.setDesc(t("settings.ignoreKey.desc"))
