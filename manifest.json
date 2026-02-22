@@ -1,7 +1,7 @@
 {
 	"id": "dinox-sync",
 	"name": "Dinox Sync",
-	"version": "1.1.2",
+	"version": "1.1.3",
 	"minAppVersion": "1.4.0",
 	"description": "Synchronize notes between Dinox and your vault.",
 	"author": "Shanks",
