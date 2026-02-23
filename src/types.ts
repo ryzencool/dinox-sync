@@ -15,7 +15,6 @@ export interface Note {
 	isDel: boolean;
 	isAudio?: boolean;
 	zettelBoxes?: Array<string | ZettelBoxRef>;
-	zettelboxexes?: ZettelBoxRef[];
 }
 
 export interface DayNote {

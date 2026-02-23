@@ -76,25 +76,7 @@ function extractFirstBoxName(value: unknown): string | null {
 
 function extractFirstZettelBoxName(noteData: Note): string | null {
 	const record = noteData as unknown as UnknownRecord;
-
-	const fromExes =
-		extractFirstBoxName(record.zettelboxexes) ??
-		extractFirstBoxName(record.zettelBoxexes) ??
-		extractFirstBoxName(record.zettelBoxExes);
-	if (fromExes) {
-		return fromExes;
-	}
-
-	// Avoid using raw ids (string arrays) as folder names; only accept objects that include `name`.
-	if (Array.isArray(record.zettelBoxes)) {
-		for (const entry of record.zettelBoxes) {
-			if (typeof entry === "string") continue;
-			const name = extractNameFromBoxEntry(entry);
-			if (name) return name;
-		}
-	}
-
-	return null;
+	return extractFirstBoxName(record.zettelBoxes);
 }
 
 export function resolveZettelBoxFolderSegment(args: {

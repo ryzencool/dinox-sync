@@ -85,7 +85,7 @@ export class DinoSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.dir)
 					.onChange(async (value) => {
 						this.plugin.settings.dir =
-							value.replace(/^\/|\/$/g, "").trim() ||
+							value.replace(/^\/+|\/+$/g, "").trim() ||
 							this.plugin.defaults.dir;
 						await this.plugin.saveSettings();
 					})
@@ -123,7 +123,7 @@ export class DinoSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.filenameTemplate)
 					.setDisabled(this.plugin.settings.filenameFormat !== "template")
 					.onChange(async (value) => {
-						this.plugin.settings.filenameTemplate = value;
+						this.plugin.settings.filenameTemplate = value.trim();
 						await this.plugin.saveSettings();
 					});
 				filenameControls.push(text);
@@ -362,7 +362,8 @@ export class DinoSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.dailyNotes.heading)
 					.setDisabled(!this.plugin.settings.dailyNotes.enabled)
 					.onChange(async (value) => {
-						this.plugin.settings.dailyNotes.heading = value.trim();
+						this.plugin.settings.dailyNotes.heading =
+						value.trim() || "## Dinox Notes";
 						await this.plugin.saveSettings();
 					});
 				dailyNotesControls.push(text);

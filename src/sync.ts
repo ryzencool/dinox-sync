@@ -169,7 +169,7 @@ async function handleNoteProcessing(args: {
 
 	const preserveKeysSetting = settings.preserveKeys || "";
 	const keysToPreserve = preserveKeysSetting
-		.split(",")
+		.split(/[,\n\r]+/)
 		.map((k) => k.trim())
 		.filter((k) => k !== "" && k !== "noteId" && k !== "source_app_id");
 

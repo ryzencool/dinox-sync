@@ -43,7 +43,13 @@ interface DailyNotesCorePlugin {
 }
 
 const MANAGED_BLOCK_START = "<!-- Dinox -->";
-const MANAGED_BLOCK_END = "<!-- Dinox -->";
+const MANAGED_BLOCK_END = "<!-- /Dinox -->";
+const LEGACY_BLOCK_END = "<!-- Dinox -->";
+
+function isManagedBlockEnd(line: string): boolean {
+	const trimmed = line.trim();
+	return trimmed === MANAGED_BLOCK_END || trimmed === LEGACY_BLOCK_END;
+}
 
 export class DailyNotesUnavailableError extends Error {
 	constructor() {
@@ -216,7 +222,7 @@ export class DailyNotesBridge {
 		let managedEndIndex = lines.findIndex(
 			(line, idx) =>
 				idx > managedStartIndex &&
-				line.trim() === MANAGED_BLOCK_END
+				isManagedBlockEnd(line)
 		);
 
 		if (managedStartIndex === -1 || managedEndIndex === -1) {
@@ -234,7 +240,7 @@ export class DailyNotesBridge {
 			managedEndIndex = lines.findIndex(
 				(line, idx) =>
 					idx > managedStartIndex &&
-					line.trim() === MANAGED_BLOCK_END
+					isManagedBlockEnd(line)
 			);
 		} else {
 			// Ensure heading exists directly above block
@@ -313,6 +319,12 @@ export class DailyNotesBridge {
 			managedEndIndex - managedStartIndex - 1,
 			...newManagedLines
 		);
+
+		// Upgrade legacy end marker to the new distinct marker.
+		const endLine = managedStartIndex + 1 + newManagedLines.length;
+		if (lines[endLine]?.trim() === LEGACY_BLOCK_END) {
+			lines[endLine] = MANAGED_BLOCK_END;
+		}
 
 		let updated = lines.join(newline);
 		if (!updated.endsWith(newline)) {

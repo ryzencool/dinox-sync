@@ -101,7 +101,7 @@ function normalizeDailyNotesSettings(value: unknown): DailyNotesSettings {
 				? record.enabled
 				: DEFAULT_DAILY_NOTES_SETTINGS.enabled,
 		heading:
-			typeof record.heading === "string"
+			typeof record.heading === "string" && record.heading.trim()
 				? record.heading
 				: DEFAULT_DAILY_NOTES_SETTINGS.heading,
 		insertTo,
@@ -174,7 +174,7 @@ export function normalizeSettings(
 				: defaults.template,
 		filenameFormat,
 		filenameTemplate:
-			typeof record.filenameTemplate === "string"
+			typeof record.filenameTemplate === "string" && record.filenameTemplate.trim()
 				? record.filenameTemplate
 				: defaults.filenameTemplate,
 		fileLayout,
