@@ -3,30 +3,47 @@ export interface StripImageUrlQueryParamsResult {
 	strippedCount: number;
 }
 
+function decodeHtmlEntities(text: string): string {
+	// Decode named entities first so that double-encoded sequences like
+	// &amp;#61; become &#61; before the numeric pass decodes them.
+	return text
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&apos;/g, "'")
+		.replace(/&#(\d+);/g, (_m, code: string) => String.fromCharCode(parseInt(code, 10)))
+		.replace(/&#x([0-9a-fA-F]+);/g, (_m, code: string) => String.fromCharCode(parseInt(code, 16)));
+}
+
 function stripUrlQueryParamsPreservingFragment(url: string): string {
 	const raw = url ?? "";
-	if (!raw.includes("?")) {
+
+	// Decode HTML entities so that encoded ?, #, &, = are correctly recognized.
+	// Source content may have &amp; for &, &#61; for =, &#63; for ?, etc.
+	const decoded = decodeHtmlEntities(raw.trim());
+
+	if (!decoded.includes("?")) {
 		return raw;
 	}
 
 	// Preserve any surrounding whitespace inside the link destination.
 	const leadingWhitespace = raw.match(/^\s*/)?.[0] ?? "";
 	const trailingWhitespace = raw.match(/\s*$/)?.[0] ?? "";
-	const trimmed = raw.trim();
 
-	const queryIndex = trimmed.indexOf("?");
+	const queryIndex = decoded.indexOf("?");
 	if (queryIndex === -1) {
 		return raw;
 	}
 
-	const hashIndex = trimmed.indexOf("#");
+	const hashIndex = decoded.indexOf("#");
 	let stripped: string;
 	if (hashIndex !== -1 && hashIndex > queryIndex) {
 		// Keep fragment: "a?b#c" -> "a#c"
-		stripped = `${trimmed.slice(0, queryIndex)}${trimmed.slice(hashIndex)}`;
+		stripped = `${decoded.slice(0, queryIndex)}${decoded.slice(hashIndex)}`;
 	} else {
 		// Either no fragment or the "?" appears after "#". Remove everything after the first "?".
-		stripped = trimmed.slice(0, queryIndex);
+		stripped = decoded.slice(0, queryIndex);
 	}
 
 	return `${leadingWhitespace}${stripped}${trailingWhitespace}`;
@@ -59,19 +76,19 @@ function rewriteHtmlImgSrcAttributes(text: string): StripImageUrlQueryParamsResu
 				const escaped = stripped.replace(/"/g, "%22");
 				return match.replace(
 					/(\bsrc\s*=\s*)"(?:[^"]*)"/i,
-					`$1"${escaped}"`
+					(_m: string, prefix: string) => `${prefix}"${escaped}"`
 				);
 			}
 			if (squoted !== undefined) {
 				const escaped = stripped.replace(/'/g, "%27");
 				return match.replace(
 					/(\bsrc\s*=\s*)'(?:[^']*)'/i,
-					`$1'${escaped}'`
+					(_m: string, prefix: string) => `${prefix}'${escaped}'`
 				);
 			}
 			return match.replace(
 				/(\bsrc\s*=\s*)([^\s>]+)$/i,
-				`$1${stripped}`
+				(_m: string, prefix: string) => `${prefix}${stripped}`
 			);
 		}
 	);
