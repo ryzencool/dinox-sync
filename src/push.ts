@@ -5,7 +5,7 @@ import {
 	extractFrontmatterScalar,
 	splitFrontmatter,
 } from "./markdown";
-import { getErrorMessage } from "./utils";
+import { getErrorMessage, getNoteIdFromFrontmatter } from "./utils";
 import type { TranslationKey, TranslationVars } from "../i18n";
 
 type TFunction = (key: TranslationKey, vars?: TranslationVars) => string;
@@ -54,9 +54,12 @@ export async function addNoteIdToFrontmatter(args: {
 	noteId: string;
 }): Promise<void> {
 	try {
-		await args.app.fileManager.processFrontMatter(args.file, (frontmatter) => {
-			frontmatter.noteId = args.noteId;
-		});
+		await args.app.fileManager.processFrontMatter(
+			args.file,
+			(frontmatter: Record<string, unknown>) => {
+				frontmatter.noteId = args.noteId;
+			}
+		);
 	} catch (error) {
 		console.error("Dinox: Error adding noteId to frontmatter:", error);
 		new Notice(
@@ -153,12 +156,9 @@ export async function syncNoteToDinox(args: {
 	const noteId =
 		extractFrontmatterScalar(split.frontmatter, "noteId") ??
 		extractFrontmatterScalar(split.frontmatter, "source_app_id") ??
-		(() => {
-			const cache = args.app.metadataCache.getFileCache(args.file);
-			const fm = cache?.frontmatter;
-			const raw = fm?.noteId ?? fm?.source_app_id;
-			return typeof raw === "string" ? raw : null;
-		})();
+		getNoteIdFromFrontmatter(
+			args.app.metadataCache.getFileCache(args.file)?.frontmatter
+		);
 
 	if (!noteId) {
 		new Notice(args.t("notice.syncNoId"));

@@ -1,3 +1,31 @@
+type JsonRecord = Record<string, unknown>;
+
+function asJsonRecord(value: unknown): JsonRecord | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		return undefined;
+	}
+	return value as JsonRecord;
+}
+
+export function getFrontmatterString(
+	frontmatter: unknown,
+	key: string
+): string | undefined {
+	const record = asJsonRecord(frontmatter);
+	if (!record) {
+		return undefined;
+	}
+	const value = record[key];
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function getNoteIdFromFrontmatter(frontmatter: unknown): string | undefined {
+	return (
+		getFrontmatterString(frontmatter, "noteId") ??
+		getFrontmatterString(frontmatter, "source_app_id")
+	);
+}
+
 export function getErrorMessage(error: unknown): string {
 	if (error instanceof Error && typeof error.message === "string") {
 		return error.message;
@@ -133,7 +161,11 @@ export function sanitizeFolderSegment(value: string): string | null {
 	// Keep this a single path segment: replace slashes so "a/b" cannot create nested folders.
 	let sanitized = raw.replace(/[\\/]/g, "-");
 	// Strip control chars + common filesystem-invalid characters (Windows).
-	sanitized = sanitized.replace(/[\u0000-\u001F<>:"|?*]/g, "-");
+	sanitized = sanitized
+		.split("")
+		.map((char) => (char.charCodeAt(0) < 32 ? "-" : char))
+		.join("")
+		.replace(/[<>:"|?*]/g, "-");
 	// Collapse whitespace/dashes for a stable, readable folder name.
 	sanitized = sanitized.replace(/\s+/g, " ");
 	sanitized = sanitized.replace(/-+/g, "-");

@@ -696,7 +696,7 @@ const ko = createTranslation({
 });
 
 const translations: Record<LocaleCode, TranslationRecord> = {
-	"en": en as TranslationRecord,
+	"en": en,
 	"zh-CN": zhCN,
 	"zh-TW": zhTW,
 	"ja": ja,
@@ -777,10 +777,10 @@ export function translate(
 	if (!vars) {
 		return template;
 	}
-	return template.replace(/\{(\w+)\}/g, (match, token) => {
-		if (!(token in vars)) {
+	return template.replace(/\{(\w+)\}/g, (match, rawToken: string) => {
+		if (!(rawToken in vars)) {
 			return match;
 		}
-		return String(vars[token]);
+		return String(vars[rawToken]);
 	});
 }

@@ -47,6 +47,7 @@ import {
 import {
 	formatDate,
 	getErrorMessage,
+	getNoteIdFromFrontmatter,
 	normalizeDinoxDateTime,
 } from "./src/utils";
 import type { DinoPluginAPI } from "./src/plugin-types";
@@ -85,6 +86,9 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 	public t(key: TranslationKey, vars?: TranslationVars): string {
 		return translate(this.currentLocale, key, vars);
 	}
+
+	private boundT = (key: TranslationKey, vars?: TranslationVars): string =>
+		this.t(key, vars);
 
 	private updateStatusBarLabel(): void {
 		if (!this.statusBarItemEl) {
@@ -196,7 +200,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				const view =
 					this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (view?.file) {
-					this.syncToDinox(view.editor, view.file);
+					void this.syncToDinox(view.editor, view.file);
 				}
 				break;
 			}
@@ -206,12 +210,11 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 					if (view?.file) {
 						const fileCache =
 							this.app.metadataCache.getFileCache(view.file);
-						const frontmatter = fileCache?.frontmatter;
-						const existingId =
-							frontmatter?.noteId ??
-							frontmatter?.source_app_id;
+						const existingId = getNoteIdFromFrontmatter(
+							fileCache?.frontmatter
+						);
 						if (!existingId) {
-							this.createNoteToDinox(view.editor, view.file);
+							void this.createNoteToDinox(view.editor, view.file);
 						}
 					}
 					break;
@@ -326,9 +329,9 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 			return;
 		}
 
-		const intervalId = window.setInterval(async () => {
+		const intervalId = window.setInterval(() => {
 			if (!this.isSyncing) {
-				await this.syncNotes();
+				void this.syncNotes();
 			}
 		}, 30 * 60 * 1000);
 
@@ -389,7 +392,11 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		return true;
 	}
 
-	async onload() {
+	onload(): void {
+		void this.initializePlugin();
+	}
+
+	private async initializePlugin(): Promise<void> {
 		await this.loadSettings(); // Loads settings like token, dir etc.
 		this.refreshLocale();
 		this.dailyNotesBridge = new DailyNotesBridge(
@@ -415,7 +422,6 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		this.commandRefs.syncAll = this.addCommand({
 			id: "sync-all",
 			name: this.t("command.syncAll"),
-			hotkeys: this.getHotkeysForCommand("syncAll"),
 			callback: async () => {
 				if (!this.isSyncing) {
 					await this.syncNotes();
@@ -459,12 +465,11 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		this.commandRefs.syncCurrentNote = this.addCommand({
 			id: "sync-current-note",
 			name: this.t("command.syncCurrentNote"),
-			hotkeys: this.getHotkeysForCommand("syncCurrentNote"),
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (activeView && activeView.file) {
 					if (!checking) {
-						this.syncToDinox(activeView.editor, activeView.file);
+						void this.syncToDinox(activeView.editor, activeView.file);
 					}
 					return true;
 				}
@@ -476,7 +481,6 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		this.commandRefs.createNote = this.addCommand({
 			id: "create-note",
 			name: this.t("command.createNote"),
-			hotkeys: this.getHotkeysForCommand("createNote"),
 			checkCallback: (checking: boolean) => {
 				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (!activeView || !activeView.file) {
@@ -484,8 +488,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				}
 
 				const fileCache = this.app.metadataCache.getFileCache(activeView.file);
-				const frontmatter = fileCache?.frontmatter;
-				const noteId = frontmatter?.noteId ?? frontmatter?.source_app_id;
+				const noteId = getNoteIdFromFrontmatter(fileCache?.frontmatter);
 
 				// Only show if no noteId or source_app_id exists.
 				if (noteId) {
@@ -493,7 +496,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				}
 
 				if (!checking) {
-					this.createNoteToDinox(activeView.editor, activeView.file);
+					void this.createNoteToDinox(activeView.editor, activeView.file);
 				}
 				return true;
 			},
@@ -555,7 +558,9 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 							})
 						)
 							.setIcon("upload")
-							.onClick(() => this.sendToDinox(selection));
+							.onClick(() => {
+								void this.sendToDinox(selection);
+							});
 					});
 				}
 
@@ -565,20 +570,23 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				}
 
 				const fileCache = this.app.metadataCache.getFileCache(file);
-				const frontmatter = fileCache?.frontmatter;
-				const noteId = frontmatter?.noteId ?? frontmatter?.source_app_id;
+				const noteId = getNoteIdFromFrontmatter(fileCache?.frontmatter);
 				if (!noteId) {
 					menu.addItem((item: MenuItem) => {
 						item.setTitle(this.t("menu.create"))
 							.setIcon("plus")
-							.onClick(() => this.createNoteToDinox(editor, file));
+							.onClick(() => {
+								void this.createNoteToDinox(editor, file);
+							});
 					});
 				}
 
 				menu.addItem((item: MenuItem) => {
 					item.setTitle(this.t("menu.syncCurrent"))
 						.setIcon("sync")
-						.onClick(() => this.syncToDinox(editor, file));
+						.onClick(() => {
+							void this.syncToDinox(editor, file);
+						});
 				});
 			})
 		);
@@ -697,7 +705,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 			const processingResults = await processApiResponse({
 				app: this.app,
 				settings: this.settings,
-				t: this.t.bind(this),
+				t: this.boundT,
 				dayNotes,
 				baseDir,
 				notePathById,
@@ -736,14 +744,14 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		} finally {
 			this.setStatusBarSyncingState(false);
 			this.statusBarItemEl.removeClass("is-syncing");
-			setTimeout(() => notice.hide(), errorOccurred ? 10000 : 5000);
+			window.setTimeout(() => notice.hide(), errorOccurred ? 10000 : 5000);
 		}
 	}
 
 	async sendToDinox(content: string): Promise<void> {
 		await sendSelectionToDinox({
 			token: this.settings.token,
-			t: this.t.bind(this),
+			t: this.boundT,
 			content,
 		});
 	}
@@ -752,7 +760,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		await createNoteToDinox({
 			app: this.app,
 			token: this.settings.token,
-			t: this.t.bind(this),
+			t: this.boundT,
 			editor,
 			file,
 		});
@@ -762,7 +770,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		await syncNoteToDinox({
 			app: this.app,
 			token: this.settings.token,
-			t: this.t.bind(this),
+			t: this.boundT,
 			editor,
 			file,
 		});

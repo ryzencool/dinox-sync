@@ -24,6 +24,7 @@ import { resolveZettelBoxFolderSegment } from "./zettel-box-folders";
 import { ensureFolderExists } from "./vault";
 import {
 	formatDate,
+	getNoteIdFromFrontmatter,
 	parseDate,
 	sanitizeFilename,
 } from "./utils";
@@ -275,8 +276,8 @@ async function handleNoteProcessing(args: {
 		const maybe = app.vault.getAbstractFileByPath(desiredPath);
 		if (maybe instanceof TFile) {
 			const cache = app.metadataCache.getFileCache(maybe);
-			const fmId = cache?.frontmatter?.noteId ?? cache?.frontmatter?.source_app_id;
-			if (typeof fmId === "string" && fmId.trim() === sourceId) {
+			const fmId = getNoteIdFromFrontmatter(cache?.frontmatter);
+			if (fmId === sourceId) {
 				existingFile = maybe;
 				notePathById[sourceId] = maybe.path;
 			}
@@ -372,11 +373,14 @@ async function handleNoteProcessing(args: {
 
 	if (Object.keys(propertiesToPreserve).length > 0) {
 		try {
-			await app.fileManager.processFrontMatter(targetFile, (frontmatter) => {
-				for (const [key, value] of Object.entries(propertiesToPreserve)) {
-					frontmatter[key] = value;
+			await app.fileManager.processFrontMatter(
+				targetFile,
+				(frontmatter: Record<string, unknown>) => {
+					for (const [key, value] of Object.entries(propertiesToPreserve)) {
+						frontmatter[key] = value;
+					}
 				}
-			});
+			);
 		} catch (frontmatterError) {
 			console.warn(
 				`Dinox: Failed to reapply preserved properties for ${targetFile.path}`,

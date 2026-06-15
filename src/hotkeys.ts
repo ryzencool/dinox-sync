@@ -17,6 +17,12 @@ export const MODIFIER_ORDER: Modifier[] = [
 	"Alt",
 ];
 
+const VALID_MODIFIER_SET = new Set<string>(VALID_MODIFIERS);
+
+function isModifier(value: string): value is Modifier {
+	return VALID_MODIFIER_SET.has(value);
+}
+
 export function normalizeKeyValue(key: string): string {
 	if (!key) return "";
 	if (key === "Esc") return "Escape";
@@ -56,10 +62,10 @@ export function sanitizeHotkeySetting(
 	for (const maybeModifier of rawModifiers) {
 		if (
 			typeof maybeModifier === "string" &&
-			(VALID_MODIFIERS as string[]).includes(maybeModifier) &&
-			!deduped.has(maybeModifier as Modifier)
+			isModifier(maybeModifier) &&
+			!deduped.has(maybeModifier)
 		) {
-			deduped.add(maybeModifier as Modifier);
+			deduped.add(maybeModifier);
 		}
 	}
 

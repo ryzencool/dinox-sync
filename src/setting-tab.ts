@@ -13,9 +13,9 @@ import type { DinoPluginAPI } from "./plugin-types";
 
 class ConfirmModal extends Modal {
 	private readonly message: string;
-	private readonly onConfirm: () => void;
+	private readonly onConfirm: () => void | Promise<void>;
 
-	constructor(app: App, message: string, onConfirm: () => void) {
+	constructor(app: App, message: string, onConfirm: () => void | Promise<void>) {
 		super(app);
 		this.message = message;
 		this.onConfirm = onConfirm;
@@ -31,7 +31,7 @@ class ConfirmModal extends Modal {
 					.setWarning()
 					.onClick(() => {
 						this.close();
-						this.onConfirm();
+						void this.onConfirm();
 					})
 			)
 			.addButton((btn) =>
@@ -52,12 +52,12 @@ function addHeading(containerEl: HTMLElement, text: string): void {
 
 export class DinoSettingTab extends PluginSettingTab {
 	private readonly plugin: DinoPluginAPI;
-	private readonly t: DinoPluginAPI["t"];
+	private readonly t: (key: Parameters<DinoPluginAPI["t"]>[0], vars?: Parameters<DinoPluginAPI["t"]>[1]) => string;
 
 	constructor(app: App, plugin: DinoPluginAPI) {
 		super(app, plugin);
 		this.plugin = plugin;
-		this.t = this.plugin.t.bind(this.plugin);
+		this.t = (key, vars) => this.plugin.t(key, vars);
 	}
 
 	display(): void {
@@ -364,7 +364,7 @@ export class DinoSettingTab extends PluginSettingTab {
 			.setDesc(t("settings.dailyNotes.heading.desc"))
 			.addText((text) => {
 				text
-					.setPlaceholder("## Dinox Notes")
+					.setPlaceholder("## Dinox notes")
 					.setValue(this.plugin.settings.dailyNotes.heading)
 					.setDisabled(!this.plugin.settings.dailyNotes.enabled)
 					.onChange(async (value) => {

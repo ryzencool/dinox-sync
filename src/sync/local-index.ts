@@ -1,4 +1,5 @@
 import { App, TFile, TFolder, normalizePath } from "obsidian";
+import { getNoteIdFromFrontmatter } from "../utils";
 
 export async function buildLocalNoteIdIndex(
 	app: App,
@@ -34,13 +35,10 @@ export async function buildLocalNoteIdIndex(
 
 			const file = child;
 			const cache = app.metadataCache.getFileCache(file);
-			const frontmatter = cache?.frontmatter;
-			const rawId = frontmatter?.noteId ?? frontmatter?.source_app_id;
-			if (typeof rawId !== "string" || !rawId.trim()) {
+			const noteId = getNoteIdFromFrontmatter(cache?.frontmatter);
+			if (!noteId) {
 				continue;
 			}
-
-			const noteId = rawId.trim();
 			const existingPath = index[noteId];
 			if (existingPath && existingPath !== file.path) {
 				const list = duplicates.get(noteId) ?? [existingPath];
