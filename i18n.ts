@@ -3,6 +3,12 @@ import type { App } from "obsidian";
 export type LocaleCode = "en" | "zh-CN" | "zh-TW" | "ja" | "ko";
 export type TranslationVars = Record<string, string | number>;
 
+type WindowWithMoment = Window & {
+	moment?: {
+		locale?: () => string;
+	};
+};
+
 const en = {
 	"statusBar.text": "Dinox",
 	"statusBar.ariaLabel": "Dinox Sync status",
@@ -703,6 +709,20 @@ function normalizeLocale(value?: string | null): string {
 	return (value || "").toLowerCase();
 }
 
+function getWindowMomentLocale(): string | undefined {
+	if (typeof window === "undefined") {
+		return undefined;
+	}
+
+	const locale = (window as WindowWithMoment).moment?.locale;
+	if (typeof locale !== "function") {
+		return undefined;
+	}
+
+	const value = locale();
+	return typeof value === "string" ? value : undefined;
+}
+
 export function resolveLocale(locale?: string | null): LocaleCode {
 	const normalized = normalizeLocale(locale);
 
@@ -740,15 +760,7 @@ export function getCurrentLocale(app: App): LocaleCode {
 	const configLocaleRaw = vaultConfig.getConfig?.("locale");
 	const configLocale =
 		typeof configLocaleRaw === "string" ? configLocaleRaw : undefined;
-	const momentLocale =
-		typeof window !== "undefined" &&
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		(window as any)?.moment &&
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		typeof (window as any).moment.locale === "function"
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			? ((window as any).moment.locale() as string)
-			: undefined;
+	const momentLocale = getWindowMomentLocale();
 	const navigatorLocale =
 		typeof navigator !== "undefined" ? navigator.language : undefined;
 

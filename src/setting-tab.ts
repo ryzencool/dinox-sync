@@ -44,6 +44,12 @@ class ConfirmModal extends Modal {
 	}
 }
 
+function addHeading(containerEl: HTMLElement, text: string): void {
+	new Setting(containerEl)
+		.setName(text)
+		.setHeading();
+}
+
 export class DinoSettingTab extends PluginSettingTab {
 	private readonly plugin: DinoPluginAPI;
 	private readonly t: DinoPluginAPI["t"];
@@ -60,7 +66,7 @@ export class DinoSettingTab extends PluginSettingTab {
 		this.plugin.refreshLocale();
 		const t = this.t;
 		containerEl.empty();
-		containerEl.createEl("h2", { text: t("settings.title") });
+		addHeading(containerEl, t("settings.title"));
 
 		new Setting(containerEl)
 			.setName(t("settings.token.name"))
@@ -91,7 +97,7 @@ export class DinoSettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: t("settings.filenameHeading") });
+		addHeading(containerEl, t("settings.filenameHeading"));
 
 		const filenameControls: Array<{ setDisabled(disabled: boolean): void }> = [];
 
@@ -143,7 +149,7 @@ export class DinoSettingTab extends PluginSettingTab {
 					});
 			});
 
-		containerEl.createEl("h3", { text: t("settings.section.typeFolders") });
+		addHeading(containerEl, t("settings.section.typeFolders"));
 
 		const typeFolderControls: Array<{ setDisabled(disabled: boolean): void }> =
 			[];
@@ -244,7 +250,7 @@ export class DinoSettingTab extends PluginSettingTab {
 
 		updateTypeFolderControls(this.plugin.settings.typeFolders.enabled);
 
-		containerEl.createEl("h3", { text: t("settings.section.zettelBoxFolders") });
+		addHeading(containerEl, t("settings.section.zettelBoxFolders"));
 
 		new Setting(containerEl)
 			.setName(t("settings.zettelBoxFolders.enable.name"))
@@ -331,7 +337,7 @@ export class DinoSettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: t("settings.section.dailyNotes") });
+		addHeading(containerEl, t("settings.section.dailyNotes"));
 		const dailyNotesControls: Array<{ setDisabled(disabled: boolean): void }> =
 			[];
 		const updateDailyNotesControls = (enabled: boolean) => {
@@ -436,7 +442,7 @@ export class DinoSettingTab extends PluginSettingTab {
 			});
 		updateDailyNotesControls(this.plugin.settings.dailyNotes.enabled);
 
-		containerEl.createEl("h3", { text: t("settings.section.hotkeys") });
+		addHeading(containerEl, t("settings.section.hotkeys"));
 		this.addHotkeySetting(
 			containerEl,
 			t("settings.hotkeys.syncAll.name"),
@@ -456,7 +462,7 @@ export class DinoSettingTab extends PluginSettingTab {
 			"createNote"
 		);
 
-		containerEl.createEl("h3", { text: t("settings.section.advanced") });
+		addHeading(containerEl, t("settings.section.advanced"));
 		let selectedPreset = "start";
 		new Setting(containerEl)
 			.setName(t("settings.advanced.reset.name"))
