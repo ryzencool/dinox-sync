@@ -14,6 +14,10 @@ function stripQuotes(value: string): string {
 	return trimmed;
 }
 
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function splitFrontmatter(markdown: string): FrontmatterSplitResult {
 	const raw = markdown ?? "";
 	const lines = raw.split(/\r?\n/);
@@ -48,7 +52,7 @@ export function extractFrontmatterScalar(
 	}
 
 	// Shallow parse: supports "key: value" on a single line.
-	const pattern = new RegExp(`^\\s*${key}\\s*:\\s*(.+?)\\s*$`, "mi");
+	const pattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*:\\s*(.+?)\\s*$`, "mi");
 	const match = frontmatter.match(pattern);
 	if (!match) {
 		return null;
@@ -79,15 +83,19 @@ function parseInlineList(value: string): string[] {
 		.filter((item) => item);
 }
 
-export function extractFrontmatterTags(frontmatter: string | null): string[] {
+export function extractFrontmatterList(
+	frontmatter: string | null,
+	key: string
+): string[] {
 	if (!frontmatter) {
 		return [];
 	}
 
 	const lines = frontmatter.split(/\r?\n/);
+	const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*:\\s*(.*)$`, "i");
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
-		const match = line.match(/^\s*tags\s*:\s*(.*)$/i);
+		const match = line.match(keyPattern);
 		if (!match) {
 			continue;
 		}
@@ -97,17 +105,17 @@ export function extractFrontmatterTags(frontmatter: string | null): string[] {
 		}
 
 		// YAML list:
-		// tags:
+		// key:
 		//   - a
 		//   - b
-		const tags: string[] = [];
+		const values: string[] = [];
 		for (let j = i + 1; j < lines.length; j++) {
 			const candidate = lines[j];
 			if (!candidate.trim()) {
 				continue;
 			}
 			if (/^\s*-\s+/.test(candidate)) {
-				tags.push(stripQuotes(candidate.replace(/^\s*-\s+/, "")));
+				values.push(stripQuotes(candidate.replace(/^\s*-\s+/, "")));
 				continue;
 			}
 			// Stop when a new top-level key begins.
@@ -117,10 +125,14 @@ export function extractFrontmatterTags(frontmatter: string | null): string[] {
 			// Unknown indentation/structure; stop to avoid over-capturing.
 			break;
 		}
-		return tags.map((tag) => tag.trim()).filter((tag) => tag);
+		return values.map((value) => value.trim()).filter((value) => value);
 	}
 
 	return [];
+}
+
+export function extractFrontmatterTags(frontmatter: string | null): string[] {
+	return extractFrontmatterList(frontmatter, "tags");
 }
 
 function stripFencedCodeBlocks(markdown: string): string {

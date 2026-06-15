@@ -1,4 +1,8 @@
 import type { Note } from "./types";
+import {
+	extractFrontmatterList,
+	splitFrontmatter,
+} from "./markdown";
 import { sanitizeFolderSegment } from "./utils";
 
 type UnknownRecord = Record<string, unknown>;
@@ -76,7 +80,16 @@ function extractFirstBoxName(value: unknown): string | null {
 
 function extractFirstZettelBoxName(noteData: Note): string | null {
 	const record = noteData as unknown as UnknownRecord;
-	return extractFirstBoxName(record.zettelBoxes);
+	const topLevelName = extractFirstBoxName(record.zettelBoxes);
+	if (topLevelName) {
+		return topLevelName;
+	}
+
+	// Fallback for API responses that only embed `zettelBoxes` into markdown content via template.
+	const split = splitFrontmatter(noteData.content ?? "");
+	return extractFirstBoxName(
+		extractFrontmatterList(split.frontmatter, "zettelBoxes")
+	);
 }
 
 export function resolveZettelBoxFolderSegment(args: {
