@@ -1,0 +1,4 @@
+interface:
+  display_name: "Obsidian Plugin Release"
+  short_description: "Release Obsidian community plugins"
+  default_prompt: "Use $obsidian-plugin-release to prepare and validate an Obsidian community plugin release."
