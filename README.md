@@ -242,9 +242,15 @@ ignore_sync: true
 
 ---
 
+## 隐私与网络访问
+
+本插件需要 Dinox 账号 Token 才能完整使用。Token 保存在 Obsidian 插件设置数据中，不会写入同步笔记。插件会访问 `dinoai.chatgo.pro` 拉取笔记，并访问 `aisdk.chatgo.pro` 创建或更新 Dinox 笔记；除此之外不包含客户端遥测、广告或自动更新机制。
+
+---
+
 ## 支持
 
-如果遇到问题或有建议，请到 [GitHub Issues](https://github.com/nicepkg/dinox-sync/issues) 反馈，或发送邮件到 zmyjust@gmail.com。
+如果遇到问题或有建议，请到 [GitHub Issues](https://github.com/ryzencool/dinox-sync/issues) 反馈，或发送邮件到 zmyjust@gmail.com。
 
 ---
 
@@ -484,9 +490,15 @@ Available in the Obsidian command palette (`Ctrl/Cmd + P`):
 
 ---
 
+## Privacy and network access
+
+This plugin requires a Dinox account token for full functionality. The token is stored in Obsidian plugin settings data and is not written into synced notes. The plugin connects to `dinoai.chatgo.pro` to pull notes, and to `aisdk.chatgo.pro` to create or update Dinox notes. It does not include client-side telemetry, ads, or a self-update mechanism.
+
+---
+
 ## Support
 
-If you encounter issues or have suggestions, please open an issue on [GitHub](https://github.com/nicepkg/dinox-sync/issues) or email zmyjust@gmail.com.
+If you encounter issues or have suggestions, please open an issue on [GitHub](https://github.com/ryzencool/dinox-sync/issues) or email zmyjust@gmail.com.
 
 ## License
 
