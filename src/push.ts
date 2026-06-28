@@ -49,25 +49,15 @@ export async function sendSelectionToDinox(args: {
 
 export async function addNoteIdToFrontmatter(args: {
 	app: App;
-	t: TFunction;
 	file: TFile;
 	noteId: string;
 }): Promise<void> {
-	try {
-		await args.app.fileManager.processFrontMatter(
-			args.file,
-			(frontmatter: Record<string, unknown>) => {
-				frontmatter.noteId = args.noteId;
-			}
-		);
-	} catch (error) {
-		console.error("Dinox: Error adding noteId to frontmatter:", error);
-		new Notice(
-			args.t("notice.frontmatterError", {
-				error: getErrorMessage(error),
-			})
-		);
-	}
+	await args.app.fileManager.processFrontMatter(
+		args.file,
+		(frontmatter: Record<string, unknown>) => {
+			frontmatter.noteId = args.noteId;
+		}
+	);
 }
 
 export async function createNoteToDinox(args: {
@@ -102,26 +92,14 @@ export async function createNoteToDinox(args: {
 		"New Note from Obsidian";
 	const allTags = extractAllTagsFromMarkdown(editorContent);
 
+	let createdNoteId: string;
 	try {
-		const createdNoteId = await createDinoxNote({
+		createdNoteId = await createDinoxNote({
 			token: args.token,
 			content: contentToCreate,
 			tags: allTags,
 			title,
 		});
-
-		await addNoteIdToFrontmatter({
-			app: args.app,
-			t: args.t,
-			file: args.file,
-			noteId: createdNoteId,
-		});
-
-		new Notice(
-			args.t("notice.createSuccess", {
-				noteId: createdNoteId.substring(0, 8),
-			})
-		);
 	} catch (error) {
 		if (error instanceof DinoxLogicError) {
 			new Notice(
@@ -134,7 +112,30 @@ export async function createNoteToDinox(args: {
 
 		console.error("Dinox: Error creating note:", error);
 		new Notice(args.t("notice.createError", { error: getErrorMessage(error) }));
+		return;
 	}
+
+	try {
+		await addNoteIdToFrontmatter({
+			app: args.app,
+			file: args.file,
+			noteId: createdNoteId,
+		});
+	} catch (error) {
+		console.error("Dinox: Error adding noteId to frontmatter:", error);
+		new Notice(
+			args.t("notice.frontmatterError", {
+				error: getErrorMessage(error),
+			})
+		);
+		return;
+	}
+
+	new Notice(
+		args.t("notice.createSuccess", {
+			noteId: createdNoteId.substring(0, 8),
+		})
+	);
 }
 
 export async function syncNoteToDinox(args: {

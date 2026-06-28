@@ -19,19 +19,23 @@ import { stripQueryParamsFromImageUrls } from "./markdown-images";
 import {
 	categorizeDinoxType,
 	resolveCategoryBaseDir,
+	sanitizeRelativeFolderSubpath,
 } from "./type-folders";
 import { resolveZettelBoxFolderPath } from "./zettel-box-folders";
 import { renderNoteTemplate } from "./template";
 import { ensureFolderExists } from "./vault";
 import {
 	formatDate,
-	getNoteIdFromFrontmatter,
 	parseDate,
 	sanitizeFilename,
 } from "./utils";
 import type { TranslationKey, TranslationVars } from "../i18n";
 
 export { buildLocalNoteIdIndex } from "./sync/local-index";
+import {
+	readLocalFrontmatter,
+	readNoteIdFromFile,
+} from "./sync/local-index";
 
 type TFunction = (key: TranslationKey, vars?: TranslationVars) => string;
 
@@ -276,8 +280,7 @@ async function handleNoteProcessing(args: {
 	if (!existingFile) {
 		const maybe = app.vault.getAbstractFileByPath(desiredPath);
 		if (maybe instanceof TFile) {
-			const cache = app.metadataCache.getFileCache(maybe);
-			const fmId = getNoteIdFromFrontmatter(cache?.frontmatter);
+			const fmId = await readNoteIdFromFile(app, maybe);
 			if (fmId === sourceId) {
 				existingFile = maybe;
 				notePathById[sourceId] = maybe.path;
@@ -292,8 +295,10 @@ async function handleNoteProcessing(args: {
 	let propertiesToPreserve: Record<string, unknown> = {};
 	if (existingFile) {
 		try {
-			const cache = app.metadataCache.getFileCache(existingFile);
-			const existingFrontmatter = cache?.frontmatter;
+			const existingFrontmatter = await readLocalFrontmatter(
+				app,
+				existingFile
+			);
 			if (existingFrontmatter) {
 				if (ignoreKey && existingFrontmatter[ignoreKey] === true) {
 					return { status: "skipped" };
@@ -427,6 +432,7 @@ export interface SyncSession {
 	ensuredFolders: Set<string>;
 	processed: number;
 	deleted: number;
+	failed: number;
 }
 
 export function createSyncSession(): SyncSession {
@@ -435,6 +441,7 @@ export function createSyncSession(): SyncSession {
 		ensuredFolders: new Set(),
 		processed: 0,
 		deleted: 0,
+		failed: 0,
 	};
 }
 
@@ -472,6 +479,8 @@ export async function processNotesPage(args: {
 	};
 
 	let sinceYield = 0;
+	let failedInPage = 0;
+	let firstFailedNoteId = "";
 	for (const noteData of args.notes) {
 		const dailyDate = deriveDateOnly(noteData.createTime);
 		const safeDate = dailyDate ? dailyDate.replace(/[^0-9-]/g, "") : "";
@@ -542,6 +551,11 @@ export async function processNotesPage(args: {
 				}
 			}
 		} catch (noteError) {
+			session.failed++;
+			failedInPage++;
+			if (!firstFailedNoteId) {
+				firstFailedNoteId = noteData.noteId;
+			}
 			console.error(
 				`Dinox: Failed to process note ${noteData.noteId}:`,
 				noteError
@@ -557,6 +571,12 @@ export async function processNotesPage(args: {
 			sinceYield = 0;
 			await yieldToMain();
 		}
+	}
+
+	if (failedInPage > 0) {
+		throw new Error(
+			`Dinox: ${failedInPage} note(s) failed to process; sync cursor was not advanced. First failed note: ${firstFailedNoteId}.`
+		);
 	}
 }
 
@@ -608,7 +628,9 @@ export async function flushDailyNoteChanges(args: {
 }
 
 export async function ensureBaseDir(app: App, dir: string): Promise<string> {
-	const baseDir = normalizePath(dir?.trim() || DEFAULT_SETTINGS.dir);
+	const baseDir = normalizePath(
+		sanitizeRelativeFolderSubpath(dir) ?? DEFAULT_SETTINGS.dir
+	);
 	await ensureFolderExists(app, baseDir);
 	return baseDir;
 }

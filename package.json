@@ -1,6 +1,6 @@
 {
 	"name": "dinox-sync",
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"description": "Synchronize notes between Dinox and your Obsidian vault.",
 	"main": "main.js",
 	"scripts": {

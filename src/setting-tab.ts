@@ -287,10 +287,19 @@ export class DinoSettingTab extends PluginSettingTab {
 					.setPlaceholder(t("settings.dir.placeholder"))
 					.setValue(this.plugin.settings.dir)
 					.onChange(async (value) => {
-						this.plugin.settings.dir =
-							value.replace(/^\/+|\/+$/g, "").trim() ||
+						const sanitized =
+							sanitizeRelativeFolderSubpath(value) ??
 							this.plugin.defaults.dir;
+						if (
+							value.trim() !== "" &&
+							sanitizeRelativeFolderSubpath(value) === null
+						) {
+							new Notice(t("notice.typeFoldersInvalidReverted"));
+						}
+						this.plugin.settings.dir =
+							sanitized;
 						await this.plugin.saveSettings();
+						text.setValue(this.plugin.settings.dir);
 					})
 			);
 

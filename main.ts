@@ -711,6 +711,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 			const session = createSyncSession();
 			let cursor: string | null = null;
 			let highWaterMark: string | null = null;
+			const seenCursors = new Set<string>();
 
 			do {
 				const page: NotesSyncPage = await fetchNotesPage({
@@ -739,7 +740,26 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 					session,
 				});
 
-				cursor = page.nextCursor;
+				const nextCursor = page.nextCursor;
+				if (page.hasMore && !nextCursor) {
+					throw new Error(
+						"Dinox: Sync response indicated more pages but did not include nextCursor."
+					);
+				}
+				if (nextCursor) {
+					if (seenCursors.has(nextCursor)) {
+						throw new Error(
+							"Dinox: Sync pagination returned a repeated cursor."
+						);
+					}
+					seenCursors.add(nextCursor);
+				}
+				if (!page.hasMore && nextCursor) {
+					console.warn(
+						"Dinox: Sync response included nextCursor while hasMore was false; stopping at this page."
+					);
+				}
+				cursor = page.hasMore ? nextCursor : null;
 				if (cursor) {
 					notice.setMessage(
 						`${this.t("notice.syncStarting")} (${session.processed})`
