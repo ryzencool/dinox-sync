@@ -5,7 +5,7 @@ import {
 	normalizePath,
 } from "obsidian";
 import { DEFAULT_SETTINGS } from "./constants";
-import type { DayNote, DinoPluginSettings, Note } from "./types";
+import type { DinoPluginSettings, Note } from "./types";
 import {
 	DailyNotesUnavailableError,
 	type DailyNotesBridge,
@@ -20,7 +20,8 @@ import {
 	categorizeDinoxType,
 	resolveCategoryBaseDir,
 } from "./type-folders";
-import { resolveZettelBoxFolderSegment } from "./zettel-box-folders";
+import { resolveZettelBoxFolderPath } from "./zettel-box-folders";
+import { renderNoteTemplate } from "./template";
 import { ensureFolderExists } from "./vault";
 import {
 	formatDate,
@@ -327,7 +328,10 @@ async function handleNoteProcessing(args: {
 		return { status: "skipped" };
 	}
 
-	const finalContent = stripQueryParamsFromImageUrls(noteData.content || "").content;
+	// Content arrives as structured markdown; render the user's template here
+	// (rendering moved off the server) before writing to the vault.
+	const rendered = renderNoteTemplate(settings.template, noteData);
+	const finalContent = stripQueryParamsFromImageUrls(rendered).content;
 
 	let targetFile: TFile;
 	let finalPath = desiredPath;
@@ -397,169 +401,210 @@ async function handleNoteProcessing(args: {
 	};
 }
 
-export async function processApiResponse(args: {
+// Yield to the main thread so a long sync never starves the UI on mobile.
+const YIELD_EVERY = 20;
+function yieldToMain(): Promise<void> {
+	return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+function deriveDateOnly(value: string): string | null {
+	const parsed = parseDate(value);
+	if (!parsed) {
+		return null;
+	}
+	const year = parsed.getFullYear();
+	const month = String(parsed.getMonth() + 1).padStart(2, "0");
+	const day = String(parsed.getDate()).padStart(2, "0");
+	return `${year}-${month}-${day}`;
+}
+
+/**
+ * Mutable state shared across all pages of a single sync run so streaming
+ * pages accumulate daily-note edits and avoid re-ensuring the same folders.
+ */
+export interface SyncSession {
+	dailyNoteChanges: Map<string, DailyNoteChangeSet>;
+	ensuredFolders: Set<string>;
+	processed: number;
+	deleted: number;
+}
+
+export function createSyncSession(): SyncSession {
+	return {
+		dailyNoteChanges: new Map(),
+		ensuredFolders: new Set(),
+		processed: 0,
+		deleted: 0,
+	};
+}
+
+/** Process one page of synced notes, updating the shared session in place. */
+export async function processNotesPage(args: {
 	app: App;
 	settings: DinoPluginSettings;
 	t: TFunction;
-	dayNotes: DayNote[];
+	notes: Note[];
 	baseDir: string;
 	notePathById: Record<string, string>;
 	localIndex: Record<string, string>;
-	dailyNotesBridge: DailyNotesBridge | null;
-	onDailyNotesUnavailable: () => void;
-}): Promise<{ processed: number; deleted: number }> {
-	let processed = 0;
-	let deleted = 0;
-
+	session: SyncSession;
+}): Promise<void> {
+	const { session } = args;
 	const baseDir = normalizePath(args.baseDir);
-	const dailyNotesBridge = args.dailyNotesBridge;
-	const shouldSyncDailyNotes =
-		args.settings.dailyNotes.enabled && !!dailyNotesBridge;
+	const trackDailyNotes = args.settings.dailyNotes.enabled;
 
-	const dailyNoteChanges = new Map<string, DailyNoteChangeSet>();
 	const ensureChangeSet = (date: string): DailyNoteChangeSet => {
-		let changeSet = dailyNoteChanges.get(date);
+		let changeSet = session.dailyNoteChanges.get(date);
 		if (!changeSet) {
 			changeSet = { added: [], removed: [] };
-			dailyNoteChanges.set(date, changeSet);
+			session.dailyNoteChanges.set(date, changeSet);
 		}
 		return changeSet;
 	};
 
-	const ensuredFolders = new Set<string>();
 	const ensureFolderOnce = async (folderPath: string): Promise<void> => {
 		const normalized = normalizePath(folderPath);
-		if (ensuredFolders.has(normalized)) {
+		if (session.ensuredFolders.has(normalized)) {
 			return;
 		}
-		ensuredFolders.add(normalized);
+		session.ensuredFolders.add(normalized);
 		await ensureFolderExists(args.app, normalized);
 	};
 
-	for (const dayData of args.dayNotes.reverse()) {
-		const safeDate = dayData.date.replace(/[^0-9-]/g, "");
+	let sinceYield = 0;
+	for (const noteData of args.notes) {
+		const dailyDate = deriveDateOnly(noteData.createTime);
+		const safeDate = dailyDate ? dailyDate.replace(/[^0-9-]/g, "") : "";
 		const wantsNestedLayout =
 			args.settings.fileLayout === "nested" && !!safeDate;
 
-		for (const noteData of dayData.notes.reverse()) {
-			const typeValue = getNoteTypeForRouting(noteData);
-			const categorization = categorizeDinoxType(typeValue);
-			if (
-				!categorization.isKnown &&
-				categorization.normalizedType
-			) {
-				console.warn(
-					`Dinox: Unknown note type "${categorization.normalizedType}" for note ${noteData.noteId}. Defaulting to note folder.`
-				);
-			}
-
-			const categoryBaseDir = resolveCategoryBaseDir({
-				baseDir,
-				typeFolders: args.settings.typeFolders,
-				category: categorization.category,
-			});
-
-			// Ensure the category folder exists so nested date folders can be created under it.
-			await ensureFolderOnce(categoryBaseDir);
-
-			const zettelBoxFolder = resolveZettelBoxFolderSegment({
-				noteData,
-				enabled: args.settings.zettelBoxFolders.enabled,
-			});
-
-			const noteBaseDir = zettelBoxFolder
-				? normalizePath(`${categoryBaseDir}/${zettelBoxFolder}`)
-				: categoryBaseDir;
-
-			if (noteBaseDir !== categoryBaseDir) {
-				await ensureFolderOnce(noteBaseDir);
-			}
-
-			const datePath = wantsNestedLayout
-				? normalizePath(`${noteBaseDir}/${safeDate}`)
-				: noteBaseDir;
-
-			if (wantsNestedLayout) {
-				await ensureFolderOnce(datePath);
-			}
-
-			try {
-				const result = await handleNoteProcessing({
-					app: args.app,
-					settings: args.settings,
-					noteData,
-					datePath,
-					notePathById: args.notePathById,
-					localIndex: args.localIndex,
-				});
-				if (result.status === "deleted") {
-					deleted++;
-					if (shouldSyncDailyNotes && result.notePath) {
-						const changeSet = ensureChangeSet(dayData.date);
-						changeSet.removed.push({
-							notePath: result.notePath,
-							title: noteData.title,
-						});
-					}
-				} else if (result.status === "processed") {
-					processed++;
-					if (shouldSyncDailyNotes) {
-						const changeSet = ensureChangeSet(dayData.date);
-						changeSet.added.push({
-							notePath: result.notePath,
-							title: result.title,
-							preview: result.preview,
-						});
-					}
-				}
-			} catch (noteError) {
-				console.error(
-					`Dinox: Failed to process note ${noteData.noteId}:`,
-					noteError
-				);
-				const shortId = noteData.noteId.substring(0, 8);
-				new Notice(
-					args.t("notice.processNoteFailed", { noteId: shortId }),
-					5000
-				);
-			}
-		}
-	}
-
-	if (shouldSyncDailyNotes && dailyNoteChanges.size > 0 && dailyNotesBridge) {
-		let updatedDailyNotes = 0;
-		for (const [date, changeSet] of dailyNoteChanges) {
-			try {
-				const changed = await dailyNotesBridge.applyChangesForDate(
-					date,
-					changeSet,
-					args.settings.dailyNotes
-				);
-				if (changed) {
-					updatedDailyNotes++;
-				}
-			} catch (error) {
-				if (error instanceof DailyNotesUnavailableError) {
-					args.onDailyNotesUnavailable();
-				} else {
-					console.error(
-						`Dinox: Failed to update daily note for ${date}:`,
-						error
-					);
-					new Notice(args.t("notice.dailyNotesUpdateFailed"), 5000);
-				}
-			}
-		}
-		if (updatedDailyNotes > 0) {
-			new Notice(
-				args.t("notice.dailyNotesUpdated", {
-					count: updatedDailyNotes,
-				})
+		const typeValue = getNoteTypeForRouting(noteData);
+		const categorization = categorizeDinoxType(typeValue);
+		if (!categorization.isKnown && categorization.normalizedType) {
+			console.warn(
+				`Dinox: Unknown note type "${categorization.normalizedType}" for note ${noteData.noteId}. Defaulting to note folder.`
 			);
 		}
+
+		const categoryBaseDir = resolveCategoryBaseDir({
+			baseDir,
+			typeFolders: args.settings.typeFolders,
+			category: categorization.category,
+		});
+		await ensureFolderOnce(categoryBaseDir);
+
+		const zettelBoxFolder = resolveZettelBoxFolderPath({
+			noteData,
+			enabled: args.settings.zettelBoxFolders.enabled,
+		});
+
+		const noteBaseDir = zettelBoxFolder
+			? normalizePath(`${categoryBaseDir}/${zettelBoxFolder}`)
+			: categoryBaseDir;
+
+		if (noteBaseDir !== categoryBaseDir) {
+			await ensureFolderOnce(noteBaseDir);
+		}
+
+		const datePath = wantsNestedLayout
+			? normalizePath(`${noteBaseDir}/${safeDate}`)
+			: noteBaseDir;
+
+		if (wantsNestedLayout) {
+			await ensureFolderOnce(datePath);
+		}
+
+		try {
+			const result = await handleNoteProcessing({
+				app: args.app,
+				settings: args.settings,
+				noteData,
+				datePath,
+				notePathById: args.notePathById,
+				localIndex: args.localIndex,
+			});
+			if (result.status === "deleted") {
+				session.deleted++;
+				if (trackDailyNotes && dailyDate && result.notePath) {
+					ensureChangeSet(dailyDate).removed.push({
+						notePath: result.notePath,
+						title: noteData.title,
+					});
+				}
+			} else if (result.status === "processed") {
+				session.processed++;
+				if (trackDailyNotes && dailyDate) {
+					ensureChangeSet(dailyDate).added.push({
+						notePath: result.notePath,
+						title: result.title,
+						preview: result.preview,
+					});
+				}
+			}
+		} catch (noteError) {
+			console.error(
+				`Dinox: Failed to process note ${noteData.noteId}:`,
+				noteError
+			);
+			const shortId = noteData.noteId.substring(0, 8);
+			new Notice(
+				args.t("notice.processNoteFailed", { noteId: shortId }),
+				5000
+			);
+		}
+
+		if (++sinceYield >= YIELD_EVERY) {
+			sinceYield = 0;
+			await yieldToMain();
+		}
+	}
+}
+
+/** Apply accumulated daily-note edits once, after all pages are processed. */
+export async function flushDailyNoteChanges(args: {
+	session: SyncSession;
+	settings: DinoPluginSettings;
+	t: TFunction;
+	dailyNotesBridge: DailyNotesBridge | null;
+	onDailyNotesUnavailable: () => void;
+}): Promise<void> {
+	const { session, dailyNotesBridge } = args;
+	if (
+		!args.settings.dailyNotes.enabled ||
+		!dailyNotesBridge ||
+		session.dailyNoteChanges.size === 0
+	) {
+		return;
 	}
 
-	return { processed, deleted };
+	let updatedDailyNotes = 0;
+	for (const [date, changeSet] of session.dailyNoteChanges) {
+		try {
+			const changed = await dailyNotesBridge.applyChangesForDate(
+				date,
+				changeSet,
+				args.settings.dailyNotes
+			);
+			if (changed) {
+				updatedDailyNotes++;
+			}
+		} catch (error) {
+			if (error instanceof DailyNotesUnavailableError) {
+				args.onDailyNotesUnavailable();
+			} else {
+				console.error(
+					`Dinox: Failed to update daily note for ${date}:`,
+					error
+				);
+				new Notice(args.t("notice.dailyNotesUpdateFailed"), 5000);
+			}
+		}
+	}
+	if (updatedDailyNotes > 0) {
+		new Notice(
+			args.t("notice.dailyNotesUpdated", { count: updatedDailyNotes })
+		);
+	}
 }
 
 export async function ensureBaseDir(app: App, dir: string): Promise<string> {

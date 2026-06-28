@@ -27,3 +27,38 @@
 	display: flex;
 	gap: 6px;
 }
+
+.dinox-zettel-count {
+	margin: 4px 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.dinox-zettel-note {
+	padding: 8px;
+	color: var(--text-muted);
+}
+
+.dinox-zettel-tree {
+	margin-top: 0.5em;
+	max-height: 320px;
+	overflow-y: auto;
+	padding: 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+}
+
+.dinox-zettel-children {
+	padding-left: 1.5em;
+}
+
+.dinox-zettel-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	padding: 2px 0;
+}
+
+.dinox-zettel-row.is-implied {
+	opacity: 0.5;
+}

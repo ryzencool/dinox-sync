@@ -36,63 +36,80 @@ function looksLikeLikelyId(value: string): boolean {
 	return false;
 }
 
-function extractNameFromBoxEntry(entry: unknown): string | null {
+function extractPathSegmentsFromBoxEntry(entry: unknown): string[] | null {
 	if (typeof entry === "string") {
 		const trimmed = entry.trim();
-		if (!trimmed) {
+		if (!trimmed || looksLikeLikelyId(trimmed)) {
 			return null;
 		}
-		// A raw string might be an id; only treat it as a name when it's not id-looking.
-		return looksLikeLikelyId(trimmed) ? null : trimmed;
+		// A plain string is one segment; only the structured `path` field below
+		// expresses hierarchy (a box name itself may contain "/").
+		return [trimmed];
 	}
 	if (!isRecord(entry)) {
 		return null;
 	}
 
+	// Prefer the explicit hierarchical path when present.
+	if (typeof entry.path === "string") {
+		const segments = entry.path
+			.split("/")
+			.map((part) => part.trim())
+			.filter((part) => part.length > 0);
+		if (segments.length > 0) {
+			return segments;
+		}
+	}
+
 	if (typeof entry.name === "string" && entry.name.trim()) {
-		return entry.name.trim();
+		return [entry.name.trim()];
 	}
 	if (typeof entry.zettelBoxName === "string" && entry.zettelBoxName.trim()) {
-		return entry.zettelBoxName.trim();
+		return [entry.zettelBoxName.trim()];
 	}
 
 	const nested = entry.zettelBox;
 	if (isRecord(nested) && typeof nested.name === "string" && nested.name.trim()) {
-		return nested.name.trim();
+		return [nested.name.trim()];
 	}
 
 	return null;
 }
 
-function extractFirstBoxName(value: unknown): string | null {
+function extractFirstBoxSegments(value: unknown): string[] | null {
 	if (!Array.isArray(value)) {
 		return null;
 	}
 
 	for (const entry of value) {
-		const name = extractNameFromBoxEntry(entry);
-		if (name) {
-			return name;
+		const segments = extractPathSegmentsFromBoxEntry(entry);
+		if (segments && segments.length > 0) {
+			return segments;
 		}
 	}
 	return null;
 }
 
-function extractFirstZettelBoxName(noteData: Note): string | null {
+function extractFirstZettelBoxSegments(noteData: Note): string[] | null {
 	const record = noteData as unknown as UnknownRecord;
-	const topLevelName = extractFirstBoxName(record.zettelBoxes);
-	if (topLevelName) {
-		return topLevelName;
+	const topLevel = extractFirstBoxSegments(record.zettelBoxes);
+	if (topLevel) {
+		return topLevel;
 	}
 
-	// Fallback for API responses that only embed `zettelBoxes` into markdown content via template.
+	// Fallback for content that only embeds `zettelBoxes` into frontmatter.
 	const split = splitFrontmatter(noteData.content ?? "");
-	return extractFirstBoxName(
+	return extractFirstBoxSegments(
 		extractFrontmatterList(split.frontmatter, "zettelBoxes")
 	);
 }
 
-export function resolveZettelBoxFolderSegment(args: {
+/**
+ * Resolve the (possibly multi-level) folder path for a note's first zettel box.
+ * Each hierarchy level is sanitized independently and kept as a nested folder,
+ * e.g. "研究/AI/LLM".
+ */
+export function resolveZettelBoxFolderPath(args: {
 	noteData: Note;
 	enabled: boolean;
 }): string | null {
@@ -100,10 +117,17 @@ export function resolveZettelBoxFolderSegment(args: {
 		return null;
 	}
 
-	const rawName = extractFirstZettelBoxName(args.noteData);
-	if (!rawName) {
+	const segments = extractFirstZettelBoxSegments(args.noteData);
+	if (!segments || segments.length === 0) {
 		return null;
 	}
 
-	return sanitizeFolderSegment(rawName);
+	const sanitized = segments
+		.map((segment) => sanitizeFolderSegment(segment))
+		.filter((segment): segment is string => !!segment);
+
+	if (sanitized.length === 0) {
+		return null;
+	}
+	return sanitized.join("/");
 }

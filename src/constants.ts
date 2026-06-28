@@ -1,6 +1,7 @@
 import type {
 	DailyNotesSettings,
 	DinoPluginSettings,
+	SyncScopeSettings,
 	TypeFoldersSettings,
 	ZettelBoxFoldersSettings,
 } from "./types";
@@ -33,6 +34,10 @@ export const API_BASE_URL = "https://dinoai.chatgo.pro";
 export const API_BASE_URL_AI = "https://aisdk.chatgo.pro";
 export const DEFAULT_LAST_SYNC_TIME = "1900-01-01 00:00:00";
 
+// Incremental pull is paginated so memory stays bounded on mobile.
+export const SYNC_PAGE_SIZE = 50;
+export const SYNC_REQUEST_TIMEOUT_MS = 60000;
+
 export const DEFAULT_DAILY_NOTES_SETTINGS: DailyNotesSettings = {
 	enabled: false,
 	heading: "## Dinox Notes",
@@ -52,12 +57,18 @@ export const DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS: ZettelBoxFoldersSettings = {
 	enabled: false,
 };
 
+export const DEFAULT_SYNC_SCOPE_SETTINGS: SyncScopeSettings = {
+	enabled: false,
+	selectedBoxIds: [],
+};
+
 export const DEFAULT_SETTINGS: DinoPluginSettings = {
 	token: "",
 	isAutoSync: false,
 	dir: "Dinox Sync",
 	typeFolders: DEFAULT_TYPE_FOLDERS_SETTINGS,
 	zettelBoxFolders: DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS,
+	syncScope: DEFAULT_SYNC_SCOPE_SETTINGS,
 	template: DEFAULT_TEMPLATE_TEXT,
 	filenameFormat: "noteId",
 	filenameTemplate: "{{title}} ({{createDate}})",

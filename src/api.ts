@@ -1,6 +1,14 @@
-import { requestUrl } from "obsidian";
-import { API_BASE_URL, API_BASE_URL_AI } from "./constants";
-import type { DayNote } from "./types";
+import { requestUrl, type RequestUrlResponse } from "obsidian";
+import {
+	API_BASE_URL_AI,
+	SYNC_REQUEST_TIMEOUT_MS,
+} from "./constants";
+import type {
+	Note,
+	NotesSyncPage,
+	ZettelBoxNode,
+	ZettelBoxRef,
+} from "./types";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -53,22 +61,49 @@ interface DinoxEnvelope<T> {
 	data?: T;
 }
 
+// Obsidian's requestUrl cannot be aborted, but racing a timeout still unblocks
+// the sync loop on flaky mobile networks instead of hanging indefinitely.
+function requestWithTimeout(
+	params: Parameters<typeof requestUrl>[0],
+	timeoutMs: number
+): Promise<RequestUrlResponse> {
+	let timer: number | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = window.setTimeout(
+			() => reject(new Error(`Request timed out after ${timeoutMs}ms`)),
+			timeoutMs
+		);
+	});
+	return Promise.race([requestUrl(params), timeout]).finally(() => {
+		if (timer !== undefined) {
+			window.clearTimeout(timer);
+		}
+	});
+}
+
+// Returns the raw response so callers read `.json` only on success and `.text`
+// only on error — accessing both would materialize the whole payload twice,
+// a real OOM risk on mobile for large responses.
 async function postJson(args: {
 	url: string;
 	token: string;
 	body: unknown;
-}): Promise<{ status: number; json: unknown; text: string }> {
-	const resp = await requestUrl({
-		url: args.url,
-		method: "POST",
-		headers: {
-			Authorization: args.token,
-			"Content-Type": "application/json",
+	timeoutMs?: number;
+}): Promise<{ status: number; resp: RequestUrlResponse }> {
+	const resp = await requestWithTimeout(
+		{
+			url: args.url,
+			method: "POST",
+			headers: {
+				Authorization: args.token,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(args.body),
+			throw: false,
 		},
-		body: JSON.stringify(args.body),
-		throw: false,
-	});
-	return { status: resp.status, json: resp.json, text: resp.text };
+		args.timeoutMs ?? SYNC_REQUEST_TIMEOUT_MS
+	);
+	return { status: resp.status, resp };
 }
 
 function parseEnvelope<T>(value: unknown): DinoxEnvelope<T> {
@@ -99,51 +134,179 @@ function assertSuccess(envelope: DinoxEnvelope<unknown>): void {
 	}
 }
 
-export async function fetchNotesFromApi(args: {
+function asString(value: unknown): string {
+	return typeof value === "string" ? value : "";
+}
+
+function asStringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value
+		.map((item) => (typeof item === "string" ? item : String(item ?? "")))
+		.filter((item) => item.length > 0);
+}
+
+function mapZettelBoxes(value: unknown): Array<string | ZettelBoxRef> {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	const boxes: Array<string | ZettelBoxRef> = [];
+	for (const entry of value) {
+		if (typeof entry === "string") {
+			boxes.push(entry);
+		} else if (isJsonRecord(entry)) {
+			boxes.push({
+				id: typeof entry.id === "string" ? entry.id : undefined,
+				name: typeof entry.name === "string" ? entry.name : undefined,
+				path: typeof entry.path === "string" ? entry.path : undefined,
+			});
+		}
+	}
+	return boxes;
+}
+
+function mapNote(raw: unknown): Note | null {
+	if (!isJsonRecord(raw)) {
+		return null;
+	}
+	const noteId = asString(raw.noteId);
+	if (!noteId) {
+		return null;
+	}
+	return {
+		noteId,
+		title: asString(raw.title),
+		content: asString(raw.contentMd),
+		type: asString(raw.type) || undefined,
+		tags: asStringArray(raw.tags),
+		zettelBoxes: mapZettelBoxes(raw.zettelBoxes),
+		audioUrl: asString(raw.audioUrl),
+		isAudio: raw.isAudio === true,
+		isDel: raw.isDel === true,
+		createTime: asString(raw.createdAt),
+		updateTime: asString(raw.updatedAt),
+	};
+}
+
+/**
+ * Fetch one page of incrementally-changed notes via keyset pagination.
+ * `since` is an unambiguous ISO-8601 timestamp (the prior sync high-water mark)
+ * or null on a first/full sync.
+ */
+export async function fetchNotesPage(args: {
 	token: string;
-	template: string;
-	lastSyncTime: string;
-}): Promise<DayNote[]> {
-	const { status, json, text } = await postJson({
-		url: `${API_BASE_URL}/openapi/v5/notes`,
+	since: string | null;
+	cursor: string | null;
+	limit: number;
+	includeDeleted: boolean;
+	boxIds: string[] | null;
+}): Promise<NotesSyncPage> {
+	const { status, resp } = await postJson({
+		url: `${API_BASE_URL_AI}/api/openapi/notes/sync`,
 		token: args.token,
 		body: {
-			template: args.template,
-			noteId: 0,
-			lastSyncTime: args.lastSyncTime,
+			since: args.since,
+			cursor: args.cursor,
+			limit: args.limit,
+			includeDeleted: args.includeDeleted,
+			// null => no box filter; array => only these boxes + descendants.
+			boxIds: args.boxIds,
 		},
 	});
 
 	if (status !== 200) {
-		throw new DinoxHttpError(status, truncate(text, 200));
+		throw new DinoxHttpError(status, truncate(resp.text, 200));
 	}
 
-	const envelope = parseEnvelope<unknown>(json);
+	const envelope = parseEnvelope<unknown>(resp.json);
 	assertSuccess(envelope);
 
 	const data = envelope.data;
-	if (data === undefined || data === null) {
-		return [];
-	}
-	if (!Array.isArray(data)) {
+	if (!isJsonRecord(data)) {
 		throw new DinoxInvalidResponseError(
-			"Dinox: Invalid API response: data is not an array."
+			"Dinox: Invalid API response: sync data is missing."
+		);
+	}
+	if (!Array.isArray(data.notes)) {
+		throw new DinoxInvalidResponseError(
+			"Dinox: Invalid API response: notes is not an array."
 		);
 	}
 
-	const dayNotes: DayNote[] = [];
-	for (const item of data) {
-		if (!isJsonRecord(item)) {
-			continue;
+	const notes: Note[] = [];
+	for (const item of data.notes) {
+		const note = mapNote(item);
+		if (note) {
+			notes.push(note);
 		}
-		const date = typeof item.date === "string" ? item.date : "";
-		const notes = Array.isArray(item.notes) ? item.notes : [];
-		if (!date) {
-			continue;
-		}
-		dayNotes.push({ date, notes: notes as DayNote["notes"] });
 	}
-	return dayNotes;
+
+	return {
+		notes,
+		nextCursor:
+			typeof data.nextCursor === "string" && data.nextCursor
+				? data.nextCursor
+				: null,
+		hasMore: data.hasMore === true,
+		serverTime:
+			typeof data.serverTime === "string" ? data.serverTime : undefined,
+	};
+}
+
+function mapZettelBoxNode(raw: unknown): ZettelBoxNode | null {
+	if (!isJsonRecord(raw)) {
+		return null;
+	}
+	const id = asString(raw.id);
+	if (!id) {
+		return null;
+	}
+	const priority =
+		typeof raw.priority === "number" && Number.isFinite(raw.priority)
+			? raw.priority
+			: 0;
+	return {
+		id,
+		name: asString(raw.name) || id,
+		parentId: typeof raw.parentId === "string" ? raw.parentId : null,
+		path: typeof raw.path === "string" ? raw.path : null,
+		priority,
+	};
+}
+
+/** Fetch the user's full card-box list (for the settings tree). */
+export async function fetchZettelBoxes(
+	token: string
+): Promise<ZettelBoxNode[]> {
+	const resp = await requestWithTimeout(
+		{
+			url: `${API_BASE_URL_AI}/api/openapi/zettelboxes`,
+			method: "GET",
+			headers: { Authorization: token },
+			throw: false,
+		},
+		SYNC_REQUEST_TIMEOUT_MS
+	);
+
+	if (resp.status !== 200) {
+		throw new DinoxHttpError(resp.status, truncate(resp.text, 200));
+	}
+
+	const envelope = parseEnvelope<unknown>(resp.json);
+	assertSuccess(envelope);
+
+	if (!Array.isArray(envelope.data)) {
+		return [];
+	}
+	const boxes: ZettelBoxNode[] = [];
+	for (const item of envelope.data) {
+		const box = mapZettelBoxNode(item);
+		if (box) {
+			boxes.push(box);
+		}
+	}
+	return boxes;
 }
 
 export async function createDinoxNote(args: {
@@ -152,7 +315,7 @@ export async function createDinoxNote(args: {
 	title: string;
 	tags: string[];
 }): Promise<string> {
-	const { status, json, text } = await postJson({
+	const { status, resp } = await postJson({
 		url: `${API_BASE_URL_AI}/api/openapi/createNote`,
 		token: args.token,
 		body: {
@@ -163,10 +326,10 @@ export async function createDinoxNote(args: {
 	});
 
 	if (status !== 200) {
-		throw new DinoxHttpError(status, truncate(text, 200));
+		throw new DinoxHttpError(status, truncate(resp.text, 200));
 	}
 
-	const envelope = parseEnvelope<unknown>(json);
+	const envelope = parseEnvelope<unknown>(resp.json);
 	assertSuccess(envelope);
 
 	const data = envelope.data;
@@ -191,7 +354,7 @@ export async function updateDinoxNote(args: {
 	title: string;
 	tags: string[];
 }): Promise<void> {
-	const { status, json, text } = await postJson({
+	const { status, resp } = await postJson({
 		url: `${API_BASE_URL_AI}/api/openapi/updateNote`,
 		token: args.token,
 		body: {
@@ -203,10 +366,10 @@ export async function updateDinoxNote(args: {
 	});
 
 	if (status !== 200) {
-		throw new DinoxHttpError(status, truncate(text, 200));
+		throw new DinoxHttpError(status, truncate(resp.text, 200));
 	}
 
-	const envelope = parseEnvelope<unknown>(json);
+	const envelope = parseEnvelope<unknown>(resp.json);
 	assertSuccess(envelope);
 }
 

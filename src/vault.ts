@@ -5,31 +5,43 @@ export async function ensureFolderExists(
 	folderPath: string
 ): Promise<void> {
 	const normalizedPath = normalizePath(folderPath);
-	try {
-		const abstractFile =
-			app.vault.getAbstractFileByPath(normalizedPath);
-		if (abstractFile) {
-			if (!(abstractFile instanceof TFolder)) {
+	if (!normalizedPath || normalizedPath === "/" || normalizedPath === ".") {
+		return;
+	}
+
+	// Create each ancestor in order so multi-level paths (e.g. nested zettel
+	// box folders) work even if vault.createFolder is not recursive.
+	const segments = normalizedPath.split("/").filter(Boolean);
+	let current = "";
+	for (const segment of segments) {
+		current = current ? `${current}/${segment}` : segment;
+
+		const node = app.vault.getAbstractFileByPath(current);
+		if (node) {
+			if (!(node instanceof TFolder)) {
 				throw new Error(
-					`Sync path "${normalizedPath}" exists but is not a folder.`
+					`Sync path "${current}" exists but is not a folder.`
 				);
 			}
-			return;
+			continue;
 		}
 
-		await app.vault.createFolder(normalizedPath);
-	} catch (error) {
-		if (
-			error instanceof Error &&
-			/error\s+exists/i.test(error.message)
-		) {
-			return;
+		try {
+			await app.vault.createFolder(current);
+		} catch (error) {
+			// Tolerate races and "already exists" so concurrent ensures are safe.
+			if (
+				error instanceof Error &&
+				/exists/i.test(error.message)
+			) {
+				continue;
+			}
+			console.error(
+				`Dinox: Error ensuring folder "${current}" exists:`,
+				error
+			);
+			throw error;
 		}
-		console.error(
-			`Dinox: Error ensuring folder "${normalizedPath}" exists:`,
-			error
-		);
-		throw error;
 	}
 }
 

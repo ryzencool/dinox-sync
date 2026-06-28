@@ -3,29 +3,30 @@ import type { Modifier } from "obsidian";
 export interface ZettelBoxRef {
 	id?: string;
 	name?: string;
+	/** Full hierarchical path, "/"-separated from root to leaf. */
+	path?: string;
 }
 
 export interface Note {
 	title: string;
 	createTime: string;
+	updateTime?: string;
 	content: string;
 	noteId: string;
 	type?: string;
 	tags?: string[];
 	isDel: boolean;
 	isAudio?: boolean;
+	audioUrl?: string;
 	zettelBoxes?: Array<string | ZettelBoxRef>;
 }
 
-export interface DayNote {
-	date: string;
+/** A single page of incrementally-synced notes returned by the sync endpoint. */
+export interface NotesSyncPage {
 	notes: Note[];
-}
-
-export interface GetNoteApiResult {
-	code: string;
-	msg?: string;
-	data: DayNote[];
+	nextCursor: string | null;
+	hasMore: boolean;
+	serverTime?: string;
 }
 
 export type DinoCommandKey = "syncAll" | "syncCurrentNote" | "createNote";
@@ -56,12 +57,28 @@ export interface ZettelBoxFoldersSettings {
 	enabled: boolean;
 }
 
+export interface SyncScopeSettings {
+	/** When true, only notes in the selected boxes (and their sub-boxes) sync. */
+	enabled: boolean;
+	selectedBoxIds: string[];
+}
+
+/** A card box as returned by the zettelboxes endpoint, used to build the tree. */
+export interface ZettelBoxNode {
+	id: string;
+	name: string;
+	parentId: string | null;
+	path: string | null;
+	priority: number;
+}
+
 export interface DinoPluginSettings {
 	token: string;
 	isAutoSync: boolean;
 	dir: string;
 	typeFolders: TypeFoldersSettings;
 	zettelBoxFolders: ZettelBoxFoldersSettings;
+	syncScope: SyncScopeSettings;
 	template: string;
 	filenameFormat: "noteId" | "title" | "time" | "titleDate" | "template";
 	filenameTemplate: string;

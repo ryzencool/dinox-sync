@@ -8,7 +8,9 @@ import {
 } from "obsidian";
 import { DEFAULT_LAST_SYNC_TIME, DEFAULT_TEMPLATE_TEXT } from "./constants";
 import { sanitizeRelativeFolderSubpath } from "./type-folders";
-import type { DinoCommandKey, DinoHotkeySetting } from "./types";
+import { fetchZettelBoxes } from "./api";
+import { getErrorMessage } from "./utils";
+import type { DinoCommandKey, DinoHotkeySetting, ZettelBoxNode } from "./types";
 import type { DinoPluginAPI } from "./plugin-types";
 
 class ConfirmModal extends Modal {
@@ -53,11 +55,206 @@ function addHeading(containerEl: HTMLElement, text: string): void {
 export class DinoSettingTab extends PluginSettingTab {
 	private readonly plugin: DinoPluginAPI;
 	private readonly t: (key: Parameters<DinoPluginAPI["t"]>[0], vars?: Parameters<DinoPluginAPI["t"]>[1]) => string;
+	// Cached card-box list so toggling checkboxes does not refetch each time.
+	private zettelBoxCache: ZettelBoxNode[] | null = null;
 
 	constructor(app: App, plugin: DinoPluginAPI) {
 		super(app, plugin);
 		this.plugin = plugin;
 		this.t = (key, vars) => this.plugin.t(key, vars);
+	}
+
+	private renderSyncScopeSection(containerEl: HTMLElement): void {
+		const t = this.t;
+		addHeading(containerEl, t("settings.section.syncScope"));
+
+		new Setting(containerEl)
+			.setName(t("settings.syncScope.enable.name"))
+			.setDesc(t("settings.syncScope.enable.desc"))
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.syncScope.enabled)
+					.onChange(async (value) => {
+						this.plugin.settings.syncScope.enabled = value;
+						await this.plugin.saveSettings();
+						// Re-render so the box picker shows/hides.
+						this.display();
+					})
+			);
+
+		if (!this.plugin.settings.syncScope.enabled) {
+			return;
+		}
+
+		const countEl = containerEl.createDiv({ cls: "dinox-zettel-count" });
+		const updateCount = (): void => {
+			countEl.setText(
+				t("settings.syncScope.selectedCount", {
+					count: this.plugin.settings.syncScope.selectedBoxIds.length,
+				})
+			);
+		};
+		updateCount();
+
+		let treeEl: HTMLElement;
+
+		new Setting(containerEl)
+			.setName(t("settings.syncScope.refresh"))
+			.addButton((btn) =>
+				btn
+					.setButtonText(t("settings.syncScope.refresh"))
+					.onClick(async () => {
+						this.zettelBoxCache = null;
+						await this.loadZettelBoxesInto(treeEl, updateCount);
+					})
+			);
+
+		treeEl = containerEl.createDiv();
+		void this.loadZettelBoxesInto(treeEl, updateCount);
+	}
+
+	private async loadZettelBoxesInto(
+		treeEl: HTMLElement,
+		updateCount: () => void
+	): Promise<void> {
+		const t = this.t;
+		treeEl.empty();
+
+		const token = this.plugin.settings.token;
+		if (!token) {
+			treeEl.createDiv({
+				cls: "dinox-zettel-note",
+				text: t("settings.syncScope.tokenRequired"),
+			});
+			return;
+		}
+
+		if (this.zettelBoxCache) {
+			this.renderZettelBoxTree(treeEl, this.zettelBoxCache, updateCount);
+			return;
+		}
+
+		treeEl.createDiv({
+			cls: "dinox-zettel-note",
+			text: t("settings.syncScope.loading"),
+		});
+		try {
+			const boxes = await fetchZettelBoxes(token);
+			this.zettelBoxCache = boxes;
+			this.renderZettelBoxTree(treeEl, boxes, updateCount);
+		} catch (error) {
+			treeEl.empty();
+			treeEl.createDiv({
+				cls: "dinox-zettel-note",
+				text: t("settings.syncScope.loadFailed", {
+					error: getErrorMessage(error),
+				}),
+			});
+		}
+	}
+
+	private renderZettelBoxTree(
+		treeEl: HTMLElement,
+		boxes: ZettelBoxNode[],
+		updateCount: () => void
+	): void {
+		const t = this.t;
+		treeEl.empty();
+
+		if (boxes.length === 0) {
+			treeEl.createDiv({
+				cls: "dinox-zettel-note",
+				text: t("settings.syncScope.empty"),
+			});
+			return;
+		}
+
+		const byId = new Map(boxes.map((box) => [box.id, box]));
+		const childrenByParent = new Map<string, ZettelBoxNode[]>();
+		const roots: ZettelBoxNode[] = [];
+		for (const box of boxes) {
+			if (box.parentId && byId.has(box.parentId)) {
+				const list = childrenByParent.get(box.parentId) ?? [];
+				list.push(box);
+				childrenByParent.set(box.parentId, list);
+			} else {
+				roots.push(box);
+			}
+		}
+
+		const sortNodes = (list: ZettelBoxNode[]): ZettelBoxNode[] =>
+			list.sort(
+				(a, b) => a.priority - b.priority || a.name.localeCompare(b.name)
+			);
+
+		const selected = new Set(
+			this.plugin.settings.syncScope.selectedBoxIds
+		);
+		const hasSelectedAncestor = (box: ZettelBoxNode): boolean => {
+			const guard = new Set<string>();
+			let current = box.parentId ? byId.get(box.parentId) : undefined;
+			while (current && !guard.has(current.id)) {
+				if (selected.has(current.id)) {
+					return true;
+				}
+				guard.add(current.id);
+				current = current.parentId
+					? byId.get(current.parentId)
+					: undefined;
+			}
+			return false;
+		};
+
+		const tree = treeEl.createDiv({ cls: "dinox-zettel-tree" });
+		const renderNode = (
+			node: ZettelBoxNode,
+			parentEl: HTMLElement
+		): void => {
+			const implied = hasSelectedAncestor(node);
+			const row = parentEl.createDiv({
+				cls: implied
+					? "dinox-zettel-row is-implied"
+					: "dinox-zettel-row",
+			});
+			const checkbox = row.createEl("input");
+			checkbox.type = "checkbox";
+			checkbox.checked = implied || selected.has(node.id);
+			checkbox.disabled = implied;
+			row.createSpan({ text: node.name });
+
+			if (!implied) {
+				checkbox.addEventListener("change", () => {
+					if (checkbox.checked) {
+						selected.add(node.id);
+					} else {
+						selected.delete(node.id);
+					}
+					this.plugin.settings.syncScope.selectedBoxIds = [
+						...selected,
+					];
+					updateCount();
+					void (async () => {
+						await this.plugin.saveSettings();
+						// Re-render so implied (descendant) rows update.
+						this.renderZettelBoxTree(treeEl, boxes, updateCount);
+					})();
+				});
+			}
+
+			const kids = childrenByParent.get(node.id);
+			if (kids && kids.length > 0) {
+				const childrenEl = parentEl.createDiv({
+					cls: "dinox-zettel-children",
+				});
+				for (const kid of sortNodes([...kids])) {
+					renderNode(kid, childrenEl);
+				}
+			}
+		};
+
+		for (const root of sortNodes([...roots])) {
+			renderNode(root, tree);
+		}
 	}
 
 	display(): void {
@@ -263,6 +460,8 @@ export class DinoSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+
+		this.renderSyncScopeSection(containerEl);
 
 		new Setting(containerEl)
 			.setName(t("settings.ignoreKey.name"))

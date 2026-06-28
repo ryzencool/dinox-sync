@@ -3,6 +3,7 @@ import {
 	DEFAULT_DAILY_NOTES_SETTINGS,
 	DEFAULT_LAST_SYNC_TIME,
 	DEFAULT_SETTINGS,
+	DEFAULT_SYNC_SCOPE_SETTINGS,
 	DEFAULT_TYPE_FOLDERS_SETTINGS,
 	DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS,
 } from "./constants";
@@ -11,6 +12,7 @@ import { sanitizeRelativeFolderSubpath } from "./type-folders";
 import type {
 	DailyNotesSettings,
 	DinoPluginSettings,
+	SyncScopeSettings,
 	TypeFoldersSettings,
 	ZettelBoxFoldersSettings,
 } from "./types";
@@ -81,6 +83,25 @@ function normalizeZettelBoxFoldersSettings(
 			typeof record.enabled === "boolean"
 				? record.enabled
 				: DEFAULT_ZETTEL_BOX_FOLDERS_SETTINGS.enabled,
+	};
+}
+
+function normalizeSyncScopeSettings(value: unknown): SyncScopeSettings {
+	const record = isJsonRecord(value) ? value : {};
+	const selectedBoxIds = Array.isArray(record.selectedBoxIds)
+		? record.selectedBoxIds
+				.filter(
+					(id): id is string =>
+						typeof id === "string" && id.trim() !== ""
+				)
+				.map((id) => id.trim())
+		: DEFAULT_SYNC_SCOPE_SETTINGS.selectedBoxIds;
+	return {
+		enabled:
+			typeof record.enabled === "boolean"
+				? record.enabled
+				: DEFAULT_SYNC_SCOPE_SETTINGS.enabled,
+		selectedBoxIds,
 	};
 }
 
@@ -167,6 +188,9 @@ export function normalizeSettings(
 		),
 		zettelBoxFolders: normalizeZettelBoxFoldersSettings(
 			record.zettelBoxFolders ?? defaults.zettelBoxFolders
+		),
+		syncScope: normalizeSyncScopeSettings(
+			record.syncScope ?? defaults.syncScope
 		),
 		template:
 			typeof record.template === "string"

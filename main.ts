@@ -20,13 +20,17 @@ import {
 	type TranslationKey,
 	type TranslationVars,
 } from "./i18n";
-import { DEFAULT_LAST_SYNC_TIME, DEFAULT_SETTINGS } from "./src/constants";
+import {
+	DEFAULT_LAST_SYNC_TIME,
+	DEFAULT_SETTINGS,
+	SYNC_PAGE_SIZE,
+} from "./src/constants";
 import { DailyNotesBridge, DailyNotesUnavailableError } from "./src/daily-notes";
 import {
 	getNotePathByIdFromData,
 	normalizePersistedData,
 } from "./src/persisted-data";
-import { fetchNotesFromApi } from "./src/api";
+import { fetchNotesPage } from "./src/api";
 import {
 	createNoteToDinox,
 	sendSelectionToDinox,
@@ -34,8 +38,10 @@ import {
 } from "./src/push";
 import {
 	buildLocalNoteIdIndex,
+	createSyncSession,
 	ensureBaseDir,
-	processApiResponse,
+	flushDailyNoteChanges,
+	processNotesPage,
 } from "./src/sync";
 import { ensureFolderExists } from "./src/vault";
 import {
@@ -45,16 +51,16 @@ import {
 	sanitizeHotkeySetting,
 } from "./src/hotkeys";
 import {
-	formatDate,
 	getErrorMessage,
 	getNoteIdFromFrontmatter,
-	normalizeDinoxDateTime,
+	parseDate,
 } from "./src/utils";
 import type { DinoPluginAPI } from "./src/plugin-types";
 import type {
 	DinoCommandKey,
 	DinoHotkeySetting,
 	DinoPluginSettings,
+	NotesSyncPage,
 } from "./src/types";
 import { DinoSettingTab } from "./src/setting-tab";
 
@@ -630,7 +636,21 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		await this.saveData(persisted);
 	}
 
-	// --- Core Sync Logic (Adhering to Original Flow) ---
+	// --- Core Sync Logic ---
+
+	// Convert the stored sync cursor into an unambiguous ISO timestamp the
+	// server can compare with `::timestamptz`. Returns null for a first/full
+	// sync so older stored formats can never cause a timezone-shifted query.
+	private resolveSince(stored: string | undefined): string | null {
+		if (!stored || stored === DEFAULT_LAST_SYNC_TIME) {
+			return null;
+		}
+		const parsed = parseDate(stored);
+		if (!parsed) {
+			return null;
+		}
+		return parsed.toISOString();
+	}
 
 	async syncNotes() {
 		if (this.isSyncing) {
@@ -659,9 +679,6 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		this.statusBarItemEl.addClass("is-syncing");
 		const notice = new Notice(this.t("notice.syncStarting"), 0);
 
-		const syncStartTime = new Date(); // Use this for the *next* lastSyncTime
-		let processedCount = 0;
-		let deletedCount = 0;
 		let errorOccurred = false;
 		const persisted = normalizePersistedData(
 			await this.loadData(),
@@ -669,30 +686,18 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		);
 
 		try {
-			// 1. Get last sync time from saved data (original logic)
-			let lastSyncTime = DEFAULT_LAST_SYNC_TIME;
-			const normalizedLastSyncTime = normalizeDinoxDateTime(
-				persisted.state.lastSyncTime
-			);
-			if (normalizedLastSyncTime) {
-				lastSyncTime = normalizedLastSyncTime;
-			} else if (persisted.state.lastSyncTime) {
-				console.warn(
-					"Dinox: Invalid stored lastSyncTime, using default.",
-					persisted.state.lastSyncTime
-				);
-			}
+			// 1. Resolve the incremental cursor. `since` is an unambiguous ISO
+			//    timestamp; null means a first/full sync (also skips deletions,
+			//    since there is nothing local to remove yet).
+			const since = this.resolveSince(persisted.state.lastSyncTime);
+			const includeDeleted = since !== null;
+			// null => sync everything; array => only the selected boxes + sub-boxes.
+			const boxIds = this.settings.syncScope.enabled
+				? this.settings.syncScope.selectedBoxIds
+				: null;
 
-			// 2. Fetch data from API (using original request structure)
-			const dayNotes = await fetchNotesFromApi({
-				token: this.settings.token,
-				template: this.settings.template,
-				lastSyncTime,
-			});
-
-			// 3. Resolve base dir and build stable noteId -> path mapping.
+			// 2. Resolve base dir and build stable noteId -> path mapping.
 			const baseDir = await ensureBaseDir(this.app, this.settings.dir);
-
 			const localIndex = await buildLocalNoteIdIndex(this.app, baseDir);
 			const notePathById = getNotePathByIdFromData(persisted);
 			for (const [noteId, path] of Object.entries(localIndex)) {
@@ -701,15 +706,56 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				}
 			}
 
-			// 4. Process API response (using delete + create)
-			const processingResults = await processApiResponse({
-				app: this.app,
+			// 3. Stream pages: fetch -> process -> release, so memory stays
+			//    bounded regardless of how many notes changed.
+			const session = createSyncSession();
+			let cursor: string | null = null;
+			let highWaterMark: string | null = null;
+
+			do {
+				const page: NotesSyncPage = await fetchNotesPage({
+					token: this.settings.token,
+					since,
+					cursor,
+					limit: SYNC_PAGE_SIZE,
+					includeDeleted,
+					boxIds,
+				});
+
+				// Notes are ordered newest-first, so the very first note of the
+				// first page carries the high-water mark for the next sync.
+				if (highWaterMark === null && page.notes.length > 0) {
+					highWaterMark = page.notes[0].updateTime ?? null;
+				}
+
+				await processNotesPage({
+					app: this.app,
+					settings: this.settings,
+					t: this.boundT,
+					notes: page.notes,
+					baseDir,
+					notePathById,
+					localIndex,
+					session,
+				});
+
+				cursor = page.nextCursor;
+				if (cursor) {
+					notice.setMessage(
+						`${this.t("notice.syncStarting")} (${session.processed})`
+					);
+					// Breathe between pages so the UI stays responsive.
+					await new Promise((resolve) =>
+						window.setTimeout(resolve, 0)
+					);
+				}
+			} while (cursor);
+
+			// 4. Apply accumulated daily-note edits once.
+			await flushDailyNoteChanges({
+				session,
 				settings: this.settings,
 				t: this.boundT,
-				dayNotes,
-				baseDir,
-				notePathById,
-				localIndex,
 				dailyNotesBridge: this.dailyNotesBridge,
 				onDailyNotesUnavailable: () => {
 					if (!this.hasWarnedDailyNotesUnavailable) {
@@ -718,20 +764,20 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 					}
 				},
 			});
-			processedCount = processingResults.processed;
-			deletedCount = processingResults.deleted;
 
-			// 5. Update last sync time *only on success* (original logic)
-			const newLastSyncTime = formatDate(syncStartTime);
+			// 5. Persist *only on success*. Advance the cursor only if we saw
+			//    notes; otherwise keep the previous high-water mark.
 			persisted.settings = this.settings;
-			persisted.state.lastSyncTime = newLastSyncTime;
+			if (highWaterMark) {
+				persisted.state.lastSyncTime = highWaterMark;
+			}
 			persisted.state.notePathById = notePathById;
 			await this.saveData(persisted);
 
 			notice.setMessage(
 				this.t("notice.syncComplete", {
-					processed: processedCount,
-					deleted: deletedCount,
+					processed: session.processed,
+					deleted: session.deleted,
 				})
 			);
 		} catch (error) {
