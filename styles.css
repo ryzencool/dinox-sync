@@ -9,6 +9,11 @@
 	font-family: var(--font-monospace);
 }
 
+.dino-sync-template-setting.dino-sync-template-invalid {
+	border-color: var(--text-error);
+	box-shadow: 0 0 0 1px var(--text-error);
+}
+
 .dinox-hotkey-setting .setting-item-control {
 	align-items: center;
 	gap: 8px;

@@ -7,6 +7,7 @@ import {
 	ButtonComponent,
 } from "obsidian";
 import { DEFAULT_LAST_SYNC_TIME, DEFAULT_TEMPLATE_TEXT } from "./constants";
+import { validateTemplate } from "./template";
 import { sanitizeRelativeFolderSubpath } from "./type-folders";
 import { fetchZettelBoxes } from "./api";
 import { getErrorMessage } from "./utils";
@@ -519,6 +520,21 @@ export class DinoSettingTab extends PluginSettingTab {
 					.setPlaceholder(DEFAULT_TEMPLATE_TEXT)
 					.setValue(this.plugin.settings.template)
 					.onChange(async (value) => {
+						// Live, non-intrusive feedback: turn the field red while
+						// the template is malformed. onChange fires on every
+						// keystroke, so a toast here would spam during normal
+						// typing — the loud, actionable warning is raised once at
+						// sync time instead (see syncNotes).
+						const isInvalid = validateTemplate(value) !== null;
+						text.inputEl.toggleClass(
+							"dino-sync-template-invalid",
+							isInvalid
+						);
+						if (isInvalid) {
+							// Don't persist a broken template — it would silently
+							// drop frontmatter from every note on the next sync.
+							return;
+						}
 						this.plugin.settings.template = value;
 						await this.plugin.saveSettings();
 					});

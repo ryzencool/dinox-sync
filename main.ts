@@ -31,6 +31,7 @@ import {
 	normalizePersistedData,
 } from "./src/persisted-data";
 import { fetchNotesPage } from "./src/api";
+import { validateTemplate } from "./src/template";
 import {
 	createNoteToDinox,
 	sendSelectionToDinox,
@@ -659,6 +660,16 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		}
 		if (!this.settings.token) {
 			new Notice(this.t("notice.tokenMissing"));
+			return;
+		}
+
+		const templateError = validateTemplate(this.settings.template);
+		if (templateError) {
+			// Abort rather than render: a broken template would silently
+			// strip frontmatter from every note this sync touches.
+			new Notice(
+				this.t("notice.templateInvalidAbort", { error: templateError })
+			);
 			return;
 		}
 

@@ -63,6 +63,22 @@ function buildContext(note: Note): NoteTemplateContext {
 }
 
 /**
+ * Validate a Mustache template without needing note data.
+ *
+ * `Mustache.parse` compiles (and caches) the template, throwing on syntax
+ * errors such as unclosed or mismatched sections. Returns the error message
+ * when invalid, or null when the template is well-formed.
+ */
+export function validateTemplate(template: string): string | null {
+	try {
+		Mustache.parse(template);
+		return null;
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
+}
+
+/**
  * Render a note into its final markdown using the user's Mustache template.
  *
  * This used to happen server-side; moving it to the client lets the API return
