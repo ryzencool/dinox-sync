@@ -1,4 +1,4 @@
-import * as Mustache from "mustache";
+import Mustache from "mustache";
 import type { Note, ZettelBoxRef } from "./types";
 import { normalizeDinoxDateTime } from "./utils";
 
