@@ -269,11 +269,15 @@ async function handleNoteProcessing(args: {
 	const desiredPath = normalizePath(`${datePath}/${baseFilename}.md`);
 
 	let existingFile: TFile | null = null;
+	// Only files this plugin has synced are tracked in notePathById; files
+	// found through the local index alone may be ones the user wrote and pushed.
+	let syncedBefore = false;
 	const mappedPath = notePathById[sourceId];
 	if (mappedPath) {
 		const mapped = app.vault.getAbstractFileByPath(mappedPath);
 		if (mapped instanceof TFile) {
 			existingFile = mapped;
+			syncedBefore = true;
 		} else {
 			delete notePathById[sourceId];
 		}
@@ -337,7 +341,9 @@ async function handleNoteProcessing(args: {
 	}
 
 	if (noteData.isDel) {
-		if (existingFile) {
+		// A note that only left the sync scope still exists in Dinox: drop the
+		// copy this plugin synced, but never a file the user authored locally.
+		if (existingFile && (!noteData.outOfScope || syncedBefore)) {
 			await app.fileManager.trashFile(existingFile);
 			delete notePathById[sourceId];
 			return { status: "deleted", notePath: existingFile.path };

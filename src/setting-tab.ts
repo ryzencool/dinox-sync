@@ -1,6 +1,5 @@
 import {
 	App,
-	Modal,
 	Notice,
 	PluginSettingTab,
 	Setting,
@@ -8,44 +7,12 @@ import {
 } from "obsidian";
 import { DEFAULT_LAST_SYNC_TIME, DEFAULT_TEMPLATE_TEXT } from "./constants";
 import { validateTemplate } from "./template";
+import { ConfirmModal } from "./confirm-modal";
 import { sanitizeRelativeFolderSubpath } from "./type-folders";
 import { fetchZettelBoxes } from "./api";
 import { getErrorMessage } from "./utils";
 import type { DinoCommandKey, DinoHotkeySetting, ZettelBoxNode } from "./types";
 import type { DinoPluginAPI } from "./plugin-types";
-
-class ConfirmModal extends Modal {
-	private readonly message: string;
-	private readonly onConfirm: () => void | Promise<void>;
-
-	constructor(app: App, message: string, onConfirm: () => void | Promise<void>) {
-		super(app);
-		this.message = message;
-		this.onConfirm = onConfirm;
-	}
-
-	onOpen(): void {
-		const { contentEl } = this;
-		contentEl.createEl("p", { text: this.message });
-		new Setting(contentEl)
-			.addButton((btn) =>
-				btn
-					.setButtonText("Confirm")
-					.setWarning()
-					.onClick(() => {
-						this.close();
-						void this.onConfirm();
-					})
-			)
-			.addButton((btn) =>
-				btn.setButtonText("Cancel").onClick(() => this.close())
-			);
-	}
-
-	onClose(): void {
-		this.contentEl.empty();
-	}
-}
 
 function addHeading(containerEl: HTMLElement, text: string): void {
 	new Setting(containerEl)

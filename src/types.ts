@@ -16,6 +16,8 @@ export interface Note {
 	type?: string;
 	tags?: string[];
 	isDel: boolean;
+	/** Tombstone for a note that still exists but is outside the sync scope. */
+	outOfScope?: boolean;
 	isAudio?: boolean;
 	audioUrl?: string;
 	zettelBoxes?: Array<string | ZettelBoxRef>;

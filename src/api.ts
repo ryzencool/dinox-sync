@@ -185,6 +185,7 @@ function mapNote(raw: unknown): Note | null {
 		audioUrl: asString(raw.audioUrl),
 		isAudio: raw.isAudio === true,
 		isDel: raw.isDel === true,
+		outOfScope: raw.outOfScope === true,
 		createTime: asString(raw.createdAt),
 		updateTime: asString(raw.updatedAt),
 	};
@@ -213,6 +214,9 @@ export async function fetchNotesPage(args: {
 			includeDeleted: args.includeDeleted,
 			// null => no box filter; array => only these boxes + descendants.
 			boxIds: args.boxIds,
+			// Also return notes that changed out of the scope, so their
+			// synced copies can be removed.
+			scopeTombstones: true,
 		},
 	});
 

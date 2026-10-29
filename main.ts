@@ -30,7 +30,12 @@ import {
 	getNotePathByIdFromData,
 	normalizePersistedData,
 } from "./src/persisted-data";
-import { fetchNotesPage } from "./src/api";
+import { fetchNotesPage, fetchZettelBoxes } from "./src/api";
+import { confirmAsync } from "./src/confirm-modal";
+import {
+	computeLayoutSignature,
+	findUnreturnedSyncedFiles,
+} from "./src/sync/scope";
 import { validateTemplate } from "./src/template";
 import {
 	createNoteToDinox,
@@ -698,27 +703,55 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 		);
 
 		try {
-			// 1. Resolve the incremental cursor. `since` is an unambiguous ISO
-			//    timestamp; null means a first/full sync (also skips deletions,
-			//    since there is nothing local to remove yet).
-			const since = this.resolveSince(persisted.state.lastSyncTime);
-			const includeDeleted = since !== null;
+			// 1. Resolve scope and layout. The card-box tree is needed whenever
+			//    it decides membership (scope) or folders, so changes to it are
+			//    noticed even though they never touch a note's updated_at.
+			const { syncScope, zettelBoxFolders } = this.settings;
+			const boxes =
+				syncScope.enabled || zettelBoxFolders.enabled
+					? await fetchZettelBoxes(this.settings.token)
+					: null;
 			// null => sync everything; array => only the selected boxes + sub-boxes.
-			const boxIds = this.settings.syncScope.enabled
-				? this.settings.syncScope.selectedBoxIds
-				: null;
-
-			// 2. Resolve base dir and build stable noteId -> path mapping.
-			const baseDir = await ensureBaseDir(this.app, this.settings.dir);
-			const localIndex = await buildLocalNoteIdIndex(this.app, baseDir);
-			const notePathById = getNotePathByIdFromData(persisted);
-			for (const [noteId, path] of Object.entries(localIndex)) {
-				if (!notePathById[noteId]) {
-					notePathById[noteId] = path;
+			let boxIds: string[] | null = null;
+			if (syncScope.enabled) {
+				const known = new Set((boxes ?? []).map((box) => box.id));
+				boxIds = syncScope.selectedBoxIds.filter((id) => known.has(id));
+				if (boxIds.length === 0) {
+					// An empty scope would read as "everything was removed".
+					errorOccurred = true;
+					notice.setMessage(this.t("notice.scopeEmpty"));
+					return;
 				}
 			}
 
-			// 3. Stream pages: fetch -> process -> release, so memory stays
+			// 2. Resolve the incremental cursor. `since` is an unambiguous ISO
+			//    timestamp; null means a full pass, which returns every note in
+			//    scope and therefore also reveals which synced files to remove.
+			//    A changed scope or layout forces one, since unchanged notes
+			//    would otherwise stay out of the new scope or in old folders.
+			const layoutSignature = computeLayoutSignature(this.settings, boxes);
+			const previousSignature = persisted.state.layoutSignature;
+			const layoutChanged = previousSignature
+				? previousSignature !== layoutSignature
+				: syncScope.enabled; // first run with this version: scope pulls were broken server-side
+			const since = layoutChanged
+				? null
+				: this.resolveSince(persisted.state.lastSyncTime);
+			const fullSync = since === null;
+			const includeDeleted = !fullSync;
+			if (layoutChanged) {
+				notice.setMessage(this.t("notice.fullResync"));
+			}
+
+			// 3. Resolve base dir. notePathById tracks files this plugin synced;
+			//    the local index (frontmatter noteId scan) is only a lookup
+			//    fallback and must not mark user-authored files as synced.
+			const baseDir = await ensureBaseDir(this.app, this.settings.dir);
+			const localIndex = await buildLocalNoteIdIndex(this.app, baseDir);
+			const notePathById = getNotePathByIdFromData(persisted);
+			const returnedIds = new Set<string>();
+
+			// 4. Stream pages: fetch -> process -> release, so memory stays
 			//    bounded regardless of how many notes changed.
 			const session = createSyncSession();
 			let cursor: string | null = null;
@@ -739,6 +772,13 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				// first page carries the high-water mark for the next sync.
 				if (highWaterMark === null && page.notes.length > 0) {
 					highWaterMark = page.notes[0].updateTime ?? null;
+				}
+				if (fullSync) {
+					for (const note of page.notes) {
+						if (!note.isDel) {
+							returnedIds.add(note.noteId);
+						}
+					}
 				}
 
 				await processNotesPage({
@@ -783,7 +823,7 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				}
 			} while (cursor);
 
-			// 4. Move child cards next to their parents (which may have arrived
+			// 5. Move child cards next to their parents (which may have arrived
 			//    on a later page), then apply accumulated daily-note edits once.
 			await placeChildCards({
 				app: this.app,
@@ -804,13 +844,45 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				},
 			});
 
-			// 5. Persist *only on success*. Advance the cursor only if we saw
+			// 6. A full pass saw every note in scope: synced files it did not
+			//    return were deleted or left the scope. Removing local files is
+			//    destructive, so always ask first (they go to the trash).
+			if (fullSync) {
+				const stale = await findUnreturnedSyncedFiles({
+					app: this.app,
+					ignoreKey: this.settings.ignoreSyncKey,
+					notePathById,
+					returnedIds,
+				});
+				const confirmed =
+					stale.length > 0 &&
+					(await confirmAsync(
+						this.app,
+						this.t("confirm.removeOutOfScope", {
+							count: stale.length,
+							examples: stale
+								.slice(0, 3)
+								.map(({ file }) => file.basename)
+								.join("、"),
+						})
+					));
+				if (confirmed) {
+					for (const { noteId, file } of stale) {
+						await this.app.fileManager.trashFile(file);
+						delete notePathById[noteId];
+						session.deleted++;
+					}
+				}
+			}
+
+			// 7. Persist *only on success*. Advance the cursor only if we saw
 			//    notes; otherwise keep the previous high-water mark.
 			persisted.settings = this.settings;
 			if (highWaterMark) {
 				persisted.state.lastSyncTime = highWaterMark;
 			}
 			persisted.state.notePathById = notePathById;
+			persisted.state.layoutSignature = layoutSignature;
 			await this.saveData(persisted);
 
 			notice.setMessage(

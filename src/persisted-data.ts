@@ -28,6 +28,12 @@ function isJsonRecord(value: unknown): value is JsonRecord {
 export interface PersistedPluginState {
 	lastSyncTime: string;
 	notePathById: Record<string, string>;
+	/**
+	 * Fingerprint of everything that decides which notes sync and where they
+	 * land (scope, folder settings, card-box tree). A change forces a full pass.
+	 * Empty until the first sync that records it.
+	 */
+	layoutSignature: string;
 }
 
 export interface PersistedPluginDataV2 {
@@ -223,6 +229,10 @@ function normalizeState(value: unknown): PersistedPluginState {
 	return {
 		lastSyncTime,
 		notePathById: normalizeNotePathById(record.notePathById),
+		layoutSignature:
+			typeof record.layoutSignature === "string"
+				? record.layoutSignature
+				: "",
 	};
 }
 
@@ -265,6 +275,7 @@ export function normalizePersistedData(
 		state: {
 			lastSyncTime,
 			notePathById,
+			layoutSignature: "",
 		},
 	};
 }

@@ -84,6 +84,15 @@ Dinox 中的笔记分为两种类型：**笔记**（自己写的）和**素材**
 - **设置项：** 按卡片盒分组
 - **默认：** 关闭
 
+一篇笔记在多个卡片盒里时，放进第一个卡片盒的文件夹；开启了同步范围时，优先放进范围内的卡片盒。卡片盒改名或移动后，下次同步会自动把已同步的笔记搬到新文件夹。
+
+### 只同步部分卡片盒
+
+开启「只同步选中的卡片盒」后，只拉取勾选的卡片盒（含子盒子）里的笔记，批注跟随父笔记。
+
+- 修改勾选、卡片盒结构或文件夹设置后，下次同步会自动全量同步一次，把新纳入范围的旧笔记补齐。
+- 笔记被移出范围（换了卡片盒、取消勾选）后，插件同步下来的那份会在你确认后移到回收站；你在 Obsidian 里自己写、再推送到 Dinox 的笔记不会因为离开范围而被删除。带 `ignore_sync: true` 的笔记永远不会被动。
+
 ### 文件布局
 
 控制笔记是否按日期再分一层子文件夹。
@@ -342,6 +351,15 @@ Dinox notes come in two types: **notes** (written by you) and **materials** (web
 If you use zettel boxes in Dinox to organize notes, enabling this option creates subfolders named after each zettel box. Notes without a zettel box stay in the parent folder.
 
 - **Setting:** Group by zettel box
+
+A note in several boxes goes into the first box's folder; with a sync scope, boxes inside the scope win. After a box is renamed or moved, the next sync moves already-synced notes into the new folder.
+
+### Sync only some card boxes
+
+With "Only sync selected card boxes" on, only notes in the checked boxes (and their sub-boxes) are pulled; annotations follow their parent note.
+
+- After you change the selection, the box tree, or folder settings, the next sync runs one full pass so older notes newly in scope are pulled.
+- When a note leaves the scope (moved to another box, box unchecked), the copy this plugin synced is moved to the trash after you confirm. Notes you wrote in Obsidian and pushed to Dinox are not removed for leaving the scope, and notes with `ignore_sync: true` are never touched.
 - **Default:** Disabled
 
 ### File Layout
