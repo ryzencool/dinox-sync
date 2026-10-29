@@ -42,6 +42,7 @@ import {
 	createSyncSession,
 	ensureBaseDir,
 	flushDailyNoteChanges,
+	placeChildCards,
 	processNotesPage,
 } from "./src/sync";
 import { ensureFolderExists } from "./src/vault";
@@ -782,7 +783,14 @@ export default class DinoPlugin extends Plugin implements DinoPluginAPI {
 				}
 			} while (cursor);
 
-			// 4. Apply accumulated daily-note edits once.
+			// 4. Move child cards next to their parents (which may have arrived
+			//    on a later page), then apply accumulated daily-note edits once.
+			await placeChildCards({
+				app: this.app,
+				session,
+				notePathById,
+				localIndex,
+			});
 			await flushDailyNoteChanges({
 				session,
 				settings: this.settings,

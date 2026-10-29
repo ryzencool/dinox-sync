@@ -1,5 +1,6 @@
 import { App, Editor, Notice, TFile } from "obsidian";
 import { createDinoxNote, DinoxLogicError, updateDinoxNote } from "./api";
+import { PARENT_FRONTMATTER_KEY } from "./constants";
 import {
 	extractAllTagsFromMarkdown,
 	extractFrontmatterScalar,
@@ -168,10 +169,17 @@ export async function syncNoteToDinox(args: {
 
 	const contentToSync = split.body;
 	const allTags = extractAllTagsFromMarkdown(editorContent);
-	const title =
-		extractFrontmatterScalar(split.frontmatter, "title") ||
-		args.file.basename ||
-		"Untitled";
+	// Child cards (子卡) have no title of their own in Dinox; don't give them
+	// the filename as one.
+	const isChildCard = !!extractFrontmatterScalar(
+		split.frontmatter,
+		PARENT_FRONTMATTER_KEY
+	);
+	const title = isChildCard
+		? ""
+		: extractFrontmatterScalar(split.frontmatter, "title") ||
+			args.file.basename ||
+			"Untitled";
 
 	try {
 		await updateDinoxNote({

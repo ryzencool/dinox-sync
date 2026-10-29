@@ -12,6 +12,7 @@ interface NoteTemplateContext {
 	type: string;
 	tags: string[];
 	zettelBoxes: string[];
+	parentNoteId: string;
 	audioUrl: string;
 	createTime: string;
 	updateTime: string;
@@ -51,6 +52,7 @@ function buildContext(note: Note): NoteTemplateContext {
 		type: typeof note.type === "string" ? note.type : "",
 		tags: Array.isArray(note.tags) ? note.tags : [],
 		zettelBoxes: zettelBoxLabels(note.zettelBoxes),
+		parentNoteId: note.parentNoteId ?? "",
 		audioUrl: note.audioUrl ?? "",
 		// Keep the frontmatter timestamps in the plugin's stable local format so
 		// downstream parsing (filename formats, etc.) reads them back correctly.

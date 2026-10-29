@@ -181,6 +181,7 @@ function mapNote(raw: unknown): Note | null {
 		type: asString(raw.type) || undefined,
 		tags: asStringArray(raw.tags),
 		zettelBoxes: mapZettelBoxes(raw.zettelBoxes),
+		parentNoteId: asString(raw.parentNoteId) || undefined,
 		audioUrl: asString(raw.audioUrl),
 		isAudio: raw.isAudio === true,
 		isDel: raw.isDel === true,

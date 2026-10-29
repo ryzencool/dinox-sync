@@ -156,6 +156,18 @@ updateTime: {{updateTime}}
 
 ---
 
+## 批注（子卡）
+
+Dinox 里挂在笔记下的批注（子卡）会作为单独的笔记同步，放在父笔记所在的文件夹里，并在 frontmatter 里自动写入指向父笔记的链接：
+
+```yaml
+parent: "[[父笔记]]"
+```
+
+这样在父笔记的「反向链接」和关系图里就能看到它的所有批注。这个属性不依赖内容模板；模板里也可以用 `{{parentNoteId}}` 拿到父笔记 ID。批注不会写进日记。旧版本已经同步下来的批注需要「重置同步」后才会移到父笔记旁边并补上链接。父笔记之后换了文件夹，批注要等下次自己被同步时才会跟过去。
+
+---
+
 ## 日记集成
 
 开启后，每次同步会自动在对应日期的**日记**中添加当天同步笔记的链接。需要 Obsidian 核心插件「日记」处于启用状态。
@@ -401,6 +413,18 @@ updateTime: {{updateTime}}
 ```
 
 You can customize this template freely. It uses Mustache syntax — `{{#tags}}...{{/tags}}` loops over each tag.
+
+---
+
+## Annotations (child cards)
+
+Annotations attached to a Dinox note (child cards) sync as their own notes in the parent note's folder, and the plugin writes a link to the parent note into their frontmatter:
+
+```yaml
+parent: "[[Parent note]]"
+```
+
+The parent's backlinks and the graph then show all of its annotations. This property does not depend on the content template; templates can also use `{{parentNoteId}}`. Annotations are not added to daily notes. Annotations synced by older versions move next to their parent and get the link after a "Reset sync". If the parent later moves to another folder, an annotation follows the next time it is synced itself.
 
 ---
 

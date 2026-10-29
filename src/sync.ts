@@ -4,7 +4,7 @@ import {
 	TFile,
 	normalizePath,
 } from "obsidian";
-import { DEFAULT_SETTINGS } from "./constants";
+import { DEFAULT_SETTINGS, PARENT_FRONTMATTER_KEY } from "./constants";
 import type { DinoPluginSettings, Note } from "./types";
 import {
 	DailyNotesUnavailableError,
@@ -156,6 +156,18 @@ function buildDailyNotePreview(content: string): string | undefined {
 	return undefined;
 }
 
+/** The vault file of a synced note, or null when it is not in the vault (yet). */
+function findSyncedFile(
+	app: App,
+	noteId: string,
+	notePathById: Record<string, string>,
+	localIndex: Record<string, string>
+): TFile | null {
+	const path = notePathById[noteId] ?? localIndex[noteId];
+	const file = path ? app.vault.getAbstractFileByPath(path) : null;
+	return file instanceof TFile ? file : null;
+}
+
 async function handleNoteProcessing(args: {
 	app: App;
 	settings: DinoPluginSettings;
@@ -163,6 +175,7 @@ async function handleNoteProcessing(args: {
 	datePath: string;
 	notePathById: Record<string, string>;
 	localIndex: Record<string, string>;
+	childCards: ChildCard[];
 }): Promise<NoteProcessingResult> {
 	const { app, settings, noteData, datePath, notePathById, localIndex } = args;
 
@@ -380,6 +393,13 @@ async function handleNoteProcessing(args: {
 
 	notePathById[sourceId] = finalPath;
 
+	// Child cards get moved next to their parent and linked to it once the
+	// whole sync has run, since the parent may arrive on a later page.
+	const parentNoteId = noteData.parentNoteId?.trim();
+	if (parentNoteId) {
+		args.childCards.push({ noteId: sourceId, parentNoteId });
+	}
+
 	if (Object.keys(propertiesToPreserve).length > 0) {
 		try {
 			await app.fileManager.processFrontMatter(
@@ -423,12 +443,66 @@ function deriveDateOnly(value: string): string | null {
 	return `${year}-${month}-${day}`;
 }
 
+interface ChildCard {
+	noteId: string;
+	parentNoteId: string;
+}
+
+async function resolveRoutedDir(args: {
+	settings: DinoPluginSettings;
+	noteData: Note;
+	baseDir: string;
+	safeDate: string;
+	ensureFolderOnce: (folderPath: string) => Promise<void>;
+}): Promise<string> {
+	const { settings, noteData, baseDir, safeDate, ensureFolderOnce } = args;
+	const wantsNestedLayout = settings.fileLayout === "nested" && !!safeDate;
+	const typeValue = getNoteTypeForRouting(noteData);
+	const categorization = categorizeDinoxType(typeValue);
+	if (!categorization.isKnown && categorization.normalizedType) {
+		console.warn(
+			`Dinox: Unknown note type "${categorization.normalizedType}" for note ${noteData.noteId}. Defaulting to note folder.`
+		);
+	}
+
+	const categoryBaseDir = resolveCategoryBaseDir({
+		baseDir,
+		typeFolders: settings.typeFolders,
+		category: categorization.category,
+	});
+	await ensureFolderOnce(categoryBaseDir);
+
+	const zettelBoxFolder = resolveZettelBoxFolderPath({
+		noteData,
+		enabled: settings.zettelBoxFolders.enabled,
+	});
+
+	const noteBaseDir = zettelBoxFolder
+		? normalizePath(`${categoryBaseDir}/${zettelBoxFolder}`)
+		: categoryBaseDir;
+
+	if (noteBaseDir !== categoryBaseDir) {
+		await ensureFolderOnce(noteBaseDir);
+	}
+
+	const datePath = wantsNestedLayout
+		? normalizePath(`${noteBaseDir}/${safeDate}`)
+		: noteBaseDir;
+
+	if (wantsNestedLayout) {
+		await ensureFolderOnce(datePath);
+	}
+
+	return datePath;
+}
+
 /**
  * Mutable state shared across all pages of a single sync run so streaming
  * pages accumulate daily-note edits and avoid re-ensuring the same folders.
  */
 export interface SyncSession {
 	dailyNoteChanges: Map<string, DailyNoteChangeSet>;
+	childCards: ChildCard[];
 	ensuredFolders: Set<string>;
 	processed: number;
 	deleted: number;
@@ -438,6 +512,7 @@ export interface SyncSession {
 export function createSyncSession(): SyncSession {
 	return {
 		dailyNoteChanges: new Map(),
+		childCards: [],
 		ensuredFolders: new Set(),
 		processed: 0,
 		deleted: 0,
@@ -484,44 +559,24 @@ export async function processNotesPage(args: {
 	for (const noteData of args.notes) {
 		const dailyDate = deriveDateOnly(noteData.createTime);
 		const safeDate = dailyDate ? dailyDate.replace(/[^0-9-]/g, "") : "";
-		const wantsNestedLayout =
-			args.settings.fileLayout === "nested" && !!safeDate;
 
-		const typeValue = getNoteTypeForRouting(noteData);
-		const categorization = categorizeDinoxType(typeValue);
-		if (!categorization.isKnown && categorization.normalizedType) {
-			console.warn(
-				`Dinox: Unknown note type "${categorization.normalizedType}" for note ${noteData.noteId}. Defaulting to note folder.`
-			);
-		}
-
-		const categoryBaseDir = resolveCategoryBaseDir({
-			baseDir,
-			typeFolders: args.settings.typeFolders,
-			category: categorization.category,
-		});
-		await ensureFolderOnce(categoryBaseDir);
-
-		const zettelBoxFolder = resolveZettelBoxFolderPath({
-			noteData,
-			enabled: args.settings.zettelBoxFolders.enabled,
-		});
-
-		const noteBaseDir = zettelBoxFolder
-			? normalizePath(`${categoryBaseDir}/${zettelBoxFolder}`)
-			: categoryBaseDir;
-
-		if (noteBaseDir !== categoryBaseDir) {
-			await ensureFolderOnce(noteBaseDir);
-		}
-
-		const datePath = wantsNestedLayout
-			? normalizePath(`${noteBaseDir}/${safeDate}`)
-			: noteBaseDir;
-
-		if (wantsNestedLayout) {
-			await ensureFolderOnce(datePath);
-		}
+		const parentFile = noteData.parentNoteId
+			? findSyncedFile(
+					args.app,
+					noteData.parentNoteId,
+					args.notePathById,
+					args.localIndex
+				)
+			: null;
+		const datePath =
+			parentFile?.parent?.path ??
+			(await resolveRoutedDir({
+				settings: args.settings,
+				noteData,
+				baseDir,
+				safeDate,
+				ensureFolderOnce,
+			}));
 
 		try {
 			const result = await handleNoteProcessing({
@@ -531,6 +586,7 @@ export async function processNotesPage(args: {
 				datePath,
 				notePathById: args.notePathById,
 				localIndex: args.localIndex,
+				childCards: session.childCards,
 			});
 			if (result.status === "deleted") {
 				session.deleted++;
@@ -542,7 +598,8 @@ export async function processNotesPage(args: {
 				}
 			} else if (result.status === "processed") {
 				session.processed++;
-				if (trackDailyNotes && dailyDate) {
+				// Child cards are annotations, not entries of their own day.
+				if (trackDailyNotes && dailyDate && !noteData.parentNoteId) {
 					ensureChangeSet(dailyDate).added.push({
 						notePath: result.notePath,
 						title: result.title,
@@ -578,6 +635,54 @@ export async function processNotesPage(args: {
 			`Dinox: ${failedInPage} note(s) failed to process; sync cursor was not advanced. First failed note: ${firstFailedNoteId}.`
 		);
 	}
+}
+
+/**
+ * Put each child card synced in this run in its parent's folder and link it to
+ * the parent. Runs after the last page because pages arrive newest-first, so a
+ * parent is often written after its children. A parent that is not in the
+ * vault (ignored, or outside the sync folder) leaves the child where it is.
+ */
+export async function placeChildCards(args: {
+	app: App;
+	session: SyncSession;
+	notePathById: Record<string, string>;
+	localIndex: Record<string, string>;
+}): Promise<void> {
+	const { app, notePathById, localIndex } = args;
+	for (const card of args.session.childCards) {
+		const child = findSyncedFile(app, card.noteId, notePathById, localIndex);
+		const parent = findSyncedFile(app, card.parentNoteId, notePathById, localIndex);
+		const parentDir = parent?.parent?.path;
+		if (!child || !parent || parentDir === undefined) {
+			continue;
+		}
+		try {
+			if (child.parent?.path !== parentDir) {
+				const destination = resolveUniqueNotePath(
+					app,
+					parentDir ? `${parentDir}/${child.name}` : child.name,
+					card.noteId,
+					child.path
+				);
+				await app.fileManager.renameFile(child, destination);
+				notePathById[card.noteId] = child.path;
+			}
+			const linktext = app.metadataCache.fileToLinktext(parent, child.path, true);
+			await app.fileManager.processFrontMatter(
+				child,
+				(frontmatter: Record<string, unknown>) => {
+					frontmatter[PARENT_FRONTMATTER_KEY] = `[[${linktext}]]`;
+				}
+			);
+		} catch (error) {
+			console.warn(
+				`Dinox: Failed to place child note ${child.path} next to its parent`,
+				error
+			);
+		}
+	}
+	args.session.childCards = [];
 }
 
 /** Apply accumulated daily-note edits once, after all pages are processed. */

@@ -19,6 +19,8 @@ export interface Note {
 	isAudio?: boolean;
 	audioUrl?: string;
 	zettelBoxes?: Array<string | ZettelBoxRef>;
+	/** Child card (子卡): the Dinox note this one annotates. */
+	parentNoteId?: string;
 }
 
 /** A single page of incrementally-synced notes returned by the sync endpoint. */

@@ -30,6 +30,10 @@ updateTime: {{updateTime}}
 {{content}}
 `;
 
+// Child cards (子卡) get a wikilink to their parent under this frontmatter key,
+// so Obsidian lists them in the parent's backlinks and graph.
+export const PARENT_FRONTMATTER_KEY = "parent";
+
 export const API_BASE_URL = "https://dinoai.chatgo.pro";
 export const API_BASE_URL_AI = "https://aisdk.chatgo.pro";
 export const DEFAULT_LAST_SYNC_TIME = "1900-01-01 00:00:00";
