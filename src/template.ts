@@ -4,7 +4,29 @@ import { normalizeDinoxDateTime } from "./utils";
 
 // Notes are markdown, not HTML — Mustache's default HTML escaping would corrupt
 // content (e.g. `&` -> `&amp;`). Render everything verbatim instead.
-const NO_ESCAPE = (value: unknown): string => String(value ?? "");
+const NO_ESCAPE = (value: unknown): string => {
+	if (value === null || value === undefined) {
+		return "";
+	}
+	if (typeof value === "string") {
+		return value;
+	}
+	if (Array.isArray(value)) {
+		// Match Mustache/String() behaviour for arrays: comma-joined.
+		return value.join(",");
+	}
+	if (
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		typeof value === "bigint"
+	) {
+		return value.toString();
+	}
+	if (typeof value === "object") {
+		return JSON.stringify(value);
+	}
+	return "";
+};
 
 interface NoteTemplateContext {
 	title: string;
