@@ -63,7 +63,7 @@ echo "Updated package.json, manifest.json, versions.json"
 
 # Build
 echo "Building..."
-npm run build
+pnpm run build
 
 # Commit, tag, push
 git add package.json manifest.json versions.json

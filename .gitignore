@@ -5,8 +5,9 @@
 *.iml
 .idea
 
-# npm
+# package manager
 node_modules
+pnpm-debug.log*
 
 # Don't include the compiled main.js file in the repo.
 # They should be uploaded to GitHub releases instead.
