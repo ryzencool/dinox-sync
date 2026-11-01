@@ -1,10 +1,29 @@
 import {
 	App,
 	TFile,
-	moment,
+	moment as obsidianMoment,
 	normalizePath,
 } from "obsidian";
 import type { DailyNotesSettings } from "./types";
+
+/**
+ * The slice of moment.js used here, typed locally. Obsidian's `moment` export
+ * is typed via the transitive `moment` package; when a type checker cannot
+ * resolve that package (e.g. pnpm's isolated layout with symlinks preserved,
+ * as in Obsidian's automated plugin review) it degrades to `any`.
+ */
+interface DailyMoment {
+	isValid(): boolean;
+	format(format?: string): string;
+}
+
+interface MomentFactory {
+	(input?: Date | string): DailyMoment;
+	(input: string, formats: unknown[], strict: boolean): DailyMoment;
+	ISO_8601: unknown;
+}
+
+const moment = obsidianMoment as unknown as MomentFactory;
 
 export interface DailyNoteEntryPayload {
 	notePath: string;
@@ -161,7 +180,7 @@ export class DailyNotesBridge {
 	}
 
 	private async resolveDailyNoteFile(
-		date: moment.Moment,
+		date: DailyMoment,
 		options: CoreDailyNotesOptions,
 		settings: DailyNotesSettings
 	): Promise<TFile | null> {
