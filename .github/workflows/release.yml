@@ -9,8 +9,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write # create the GitHub release
+      id-token: write # sign build provenance attestations
+      attestations: write # store the attestations
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, for release notes
 
       # Version comes from the "packageManager" field in package.json.
       - name: Use pnpm
@@ -27,6 +34,36 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
 
+      # Lets users (and Obsidian's community review) verify the release
+      # assets were built from this repository.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Write release notes
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          prev="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
+          range="${prev:+${prev}..}${tag}"
+
+          {
+            echo "## Changes"
+            echo
+            # Skip the version-bump commits created by publish.sh.
+            git log --no-merges --format='- %s' "$range" \
+              | grep -vE '^- Release [0-9]+\.[0-9]+\.[0-9]+$' \
+              || echo "- Maintenance release."
+            if [ -n "$prev" ]; then
+              echo
+              echo "**Full changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${prev}...${tag}"
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -35,4 +72,5 @@ jobs:
 
           gh release create "$tag" \
             --title="$tag" \
+            --notes-file release-notes.md \
             main.js manifest.json styles.css
