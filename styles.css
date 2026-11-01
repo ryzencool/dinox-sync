@@ -67,3 +67,12 @@
 .dinox-zettel-row.is-implied {
 	opacity: 0.5;
 }
+
+/* Card-box picker row: let the tree wrap onto its own full-width line. */
+.dinox-zettel-scope-setting {
+	flex-wrap: wrap;
+}
+
+.dinox-zettel-scope-tree {
+	flex-basis: 100%;
+}
